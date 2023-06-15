@@ -1,0 +1,23 @@
+.DS_Store
+bin/
+.idea/
+dist/
+MacOSX*
+
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+!*.c
+report.html
+timelock-worker.log
+
+# Test binary, built with `go test -c`
+*.test
+
+# env file
+.env
+
+

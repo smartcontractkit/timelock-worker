@@ -1,0 +1,45 @@
+project_name: timelock-worker
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - binary: timelock-worker
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    main: ./main.go
+    flags:
+      - -trimpath
+      - -buildmode=pie
+    ldflags:
+      - -s -w
+      - -X github.com/smartcontractkit/timelock-worker/cmd.Version={{ .Version }}
+      - -X github.com/smartcontractkit/timelock-worker/cmd.Commit={{ .FullCommit }}
+archives:
+  - id: timelock-worker
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- if eq .Os "darwin" }}macos
+      {{- else }}{{ .Os }}{{ end }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+source:
+  enabled: true
+checksum:
+  name_template: "checksums.txt"
+snapshot:
+  name_template: "{{ .Tag }}-dev"
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
