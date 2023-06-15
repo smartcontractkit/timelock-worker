@@ -1,0 +1,52 @@
+run:
+  timeout: 10m
+  tests: true
+  modules-download-mode: readonly
+output:
+  format: html
+linters:
+  disable-all: true
+  enable:
+    - asasalint
+    - bidichk
+    - bodyclose
+    - containedctx
+    - contextcheck
+    - dogsled
+    - dupl
+    - errcheck
+    - errname
+    - errorlint
+    - exhaustive
+    - exportloopref
+    - gochecknoinits
+    - godot
+    - gofmt
+    - goprintffuncname
+    - gosec
+    - gosimple
+    - govet
+    - ineffassign
+    - makezero
+    - misspell
+    - nakedret
+    - nilerr
+    - nilnil
+    - noctx
+    - nolintlint
+    - predeclared
+    - promlinter
+    - staticcheck
+    - tenv
+    - testpackage
+    - thelper
+    - tparallel
+    - typecheck
+    - unconvert
+    - unparam
+    - whitespace
+  issues:
+    max-issues-per-linter: 0
+    max-same-issues: 0
+  severity:
+    default-severity: error

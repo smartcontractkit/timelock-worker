@@ -1,0 +1,23 @@
+mode: atomic
+github.com/smartcontractkit/timelock-worker/pkg/cli/config.go:19.40,36.33 7 3
+github.com/smartcontractkit/timelock-worker/pkg/cli/config.go:36.33,38.3 1 3
+github.com/smartcontractkit/timelock-worker/pkg/cli/config.go:40.2,40.41 1 3
+github.com/smartcontractkit/timelock-worker/pkg/cli/config.go:40.41,42.3 1 3
+github.com/smartcontractkit/timelock-worker/pkg/cli/config.go:44.2,44.36 1 3
+github.com/smartcontractkit/timelock-worker/pkg/cli/config.go:44.36,46.3 1 3
+github.com/smartcontractkit/timelock-worker/pkg/cli/config.go:48.2,48.35 1 3
+github.com/smartcontractkit/timelock-worker/pkg/cli/config.go:48.35,50.17 2 3
+github.com/smartcontractkit/timelock-worker/pkg/cli/config.go:50.17,52.4 1 3
+github.com/smartcontractkit/timelock-worker/pkg/cli/config.go:55.2,55.16 1 3
+github.com/smartcontractkit/timelock-worker/pkg/logger/logger.go:26.33,29.2 1 0
+github.com/smartcontractkit/timelock-worker/pkg/logger/logger.go:32.61,33.19 1 4
+github.com/smartcontractkit/timelock-worker/pkg/logger/logger.go:33.19,35.11 1 1
+github.com/smartcontractkit/timelock-worker/pkg/logger/logger.go:35.11,37.5 1 1
+github.com/smartcontractkit/timelock-worker/pkg/logger/logger.go:40.2,40.15 1 4
+github.com/smartcontractkit/timelock-worker/pkg/logger/logger.go:44.64,46.16 2 1
+github.com/smartcontractkit/timelock-worker/pkg/logger/logger.go:46.16,49.3 1 0
+github.com/smartcontractkit/timelock-worker/pkg/logger/logger.go:51.2,52.16 2 1
+github.com/smartcontractkit/timelock-worker/pkg/logger/logger.go:53.15,54.79 1 1
+github.com/smartcontractkit/timelock-worker/pkg/logger/logger.go:55.14,56.70 1 0
+github.com/smartcontractkit/timelock-worker/pkg/logger/logger.go:57.10,58.79 1 0
+github.com/smartcontractkit/timelock-worker/pkg/logger/logger.go:61.2,61.11 1 1
