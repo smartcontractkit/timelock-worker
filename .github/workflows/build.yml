@@ -1,0 +1,30 @@
+name: Build
+
+on:
+  push:
+    paths:
+      - "cmd/**"
+      - "pkg/**"
+      - ".github/workflows/build.yml"
+
+jobs:
+  build_bif:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - uses: smartcontractkit/tool-versions-to-env-action@v1.0.8
+        id: tool-versions
+
+      - name: Setup go ${{ steps.tool-versions.outputs.golang_version }}
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ steps.tool-versions.outputs.golang_version }}
+
+      - name: Make build
+        run: make build
+
+      - name: Make clean
+        run: make clean

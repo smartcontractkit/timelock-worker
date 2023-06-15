@@ -1,0 +1,36 @@
+name: Timelock Worker Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  goreleaser:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Required to upload dist files
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v3
+
+      - uses: smartcontractkit/tool-versions-to-env-action@v1.0.8
+        id: tool-versions
+
+      - name: Setup go ${{ steps.tool-versions.outputs.golang_version }}
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ steps.tool-versions.outputs.golang_version }}
+
+      - name: Run goreleaser
+        uses: goreleaser/goreleaser-action@v2
+        with:
+          version: latest
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/upload-artifact@v3
+        with:
+          name: dist
+          path: ./dist/*

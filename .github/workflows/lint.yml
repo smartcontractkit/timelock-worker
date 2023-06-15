@@ -1,0 +1,29 @@
+name: Verify code
+
+on:
+  push:
+    paths:
+      - "**.go"
+
+jobs:
+  golang_lint:
+    name: Golang Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v3
+
+      - uses: smartcontractkit/tool-versions-to-env-action@v1.0.8
+        id: tool-versions
+
+      - name: Setup go ${{ steps.tool-versions.outputs.golang_version }}
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ steps.tool-versions.outputs.golang_version }}
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v3
+        with:
+          version: v${{ steps.tool-versions.outputs.golangci-lint_version }}
+          args: -v --timeout=5m
+          only-new-issues: true

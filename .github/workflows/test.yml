@@ -1,0 +1,32 @@
+name: Test
+
+on:
+  push:
+    paths:
+      - "cmd/**"
+      - "pkg/**"
+      - ".github/workflows/test.yml"
+
+jobs:
+  test_bif:
+    name: Unit test
+    runs-on: ubuntu-latest
+    env:
+      TEST_NODE_URL: '${{ secrets.TEST_NODE_URL }}'
+      TEST_TIMELOCK_ADDRESS: '${{ secrets.TEST_TIMELOCK_ADDRESS }}'
+      TEST_PROXY_ADDRESS: '${{ secrets.TEST_PROXY_ADDRESS }}'
+      TEST_PRIVATE_KEY: '${{ secrets.TEST_PRIVATE_KEY }}'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - uses: smartcontractkit/tool-versions-to-env-action@v1.0.8
+        id: tool-versions
+
+      - name: Setup go ${{ steps.tool-versions.outputs.golang_version }}
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ steps.tool-versions.outputs.golang_version }}
+
+      - name: Test
+        run: make test
