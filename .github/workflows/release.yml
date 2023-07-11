@@ -23,7 +23,7 @@ jobs:
           go-version: ${{ steps.tool-versions.outputs.golang_version }}
 
       - name: Run goreleaser
-        uses: goreleaser/goreleaser-action@v2
+        uses: goreleaser/goreleaser-action@v4
         with:
           version: latest
           args: release --clean
