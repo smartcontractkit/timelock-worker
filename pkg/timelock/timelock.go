@@ -235,8 +235,7 @@ func (tw *Worker) Listen(ctx context.Context) error {
 				// Check if the error is not nil, because sub.Unsubscribe will
 				// signal the channel sub.Err() to close it, leading to false nil errors.
 				if err != nil {
-					tw.logger.Info().Msgf("subscription: %s", err.Error())
-					loop = false
+					tw.logger.Error().Msgf("subscription: %s", err.Error())
 				}
 
 			case signal := <-stopCh:
