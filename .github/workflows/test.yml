@@ -18,7 +18,7 @@ jobs:
       TEST_PRIVATE_KEY: '${{ secrets.TEST_PRIVATE_KEY }}'
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - uses: smartcontractkit/tool-versions-to-env-action@v1.0.8
         id: tool-versions
