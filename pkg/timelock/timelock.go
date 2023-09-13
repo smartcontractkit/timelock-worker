@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"fmt"
 	"math/big"
+	"net"
 	"net/url"
 	"os"
 	"os/signal"
@@ -19,6 +20,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog"
 	"github.com/smartcontractkit/timelock-worker/pkg/timelock/contract"
 )
@@ -77,8 +79,17 @@ func NewTimelockWorker(nodeURL, timelockAddress, callProxyAddress, privateKey st
 		return nil, fmt.Errorf("the provided private key is not valid: got %s", privateKey)
 	}
 
-	// All variables provided are correct, start allocating new structures.
-	client, err := rpc.Dial(nodeURL)
+	// Provide a ws dialer customized to maintain the connection alive.
+	dialer := rpc.WithWebsocketDialer(websocket.Dialer{
+		HandshakeTimeout: 45 * time.Second,
+		NetDial: (&net.Dialer{
+			Timeout:   45 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).Dial,
+	})
+
+	// Dial the RPC with the custom dialer.
+	client, err := rpc.DialOptions(context.Background(), nodeURL, dialer)
 	if err != nil {
 		return nil, err
 	}
@@ -235,8 +246,7 @@ func (tw *Worker) Listen(ctx context.Context) error {
 				// Check if the error is not nil, because sub.Unsubscribe will
 				// signal the channel sub.Err() to close it, leading to false nil errors.
 				if err != nil {
-					tw.logger.Info().Msgf("subscription: %s", err.Error())
-					loop = false
+					tw.logger.Error().Msgf("subscription: %s", err.Error())
 				}
 
 			case signal := <-stopCh:
