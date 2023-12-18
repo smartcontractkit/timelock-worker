@@ -1,0 +1,35 @@
+name: Publish
+
+on:
+  push:
+    branches:
+      - develop
+    tags:
+      - "v*"
+
+# Cancel any in-progress CI runs for a PR if it is updated
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-image:
+    runs-on: ubuntu-latest
+    environment: publish
+    permissions:
+      id-token: write
+      contents: write
+      actions: read
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+      - name: Build and push image
+        uses: ./.github/actions/build-push
+        with:
+          publish: true
+          app-name: timelock-worker
+          aws-region: ${{ secrets.AWS_REGION }}
+          aws-role-arn: ${{ secrets.AWS_OIDC_IAM_ROLE_ARN }}
+          aws-account-number: ${{ secrets.AWS_ACCOUNT_NUMBER }}
+          docker-registry: aws
+          docker-path: builds
