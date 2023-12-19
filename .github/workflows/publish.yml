@@ -22,14 +22,18 @@ jobs:
       actions: read
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+
       - name: Build and push image
-        uses: ./.github/actions/build-push
+        uses: smartcontractkit/.github/actions/cicd-build-publish-artifacts-go
         with:
-          publish: true
+          # general inputs
           app-name: timelock-worker
+          publish: true
+          # aws inputs
           aws-region: ${{ secrets.AWS_REGION }}
           aws-role-arn: ${{ secrets.AWS_OIDC_IAM_ROLE_ARN }}
           aws-account-number: ${{ secrets.AWS_ACCOUNT_NUMBER }}
+          # docker inputs
           docker-registry: aws
           docker-path: builds
