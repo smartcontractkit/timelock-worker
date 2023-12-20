@@ -1,0 +1,68 @@
+name: Publish
+
+on:
+  push:
+    branches:
+      - develop
+    tags:
+      - "v*"
+
+# Cancel any in-progress CI runs for a PR if it is updated
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-image:
+    runs-on: ubuntu-latest
+    environment: publish
+    permissions:
+      id-token: write
+      contents: write
+      actions: read
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Configure aws creds
+        uses: aws-actions/configure-aws-credentials@010d0da01d0b5a38af31e9c3470dbfdabdecca3a # v4.0.1
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_IAM_ROLE_ARN }}
+          role-duration-seconds: 900
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to aws ecr
+        uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
+        with:
+          registries: ${{ secrets.AWS_ACCOUNT_NUMBER }}
+
+      - uses: smartcontractkit/tool-versions-to-env-action@v1.0.8
+        id: tool-versions
+
+      - name: Setup go ${{ steps.tool-versions.outputs.golang_version }}
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ steps.tool-versions.outputs.golang_version }}
+
+      - name: Setup docker buildx
+        uses: docker/setup-buildx-action@f95db51fddba0c2d1ec667646a06c2ce06100226 # v3.0.0
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v4
+        with:
+          images: ${{ secrets.AWS_ACCOUNT_NUMBER }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/timelock-worker
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,enable=true,priority=100,prefix=sha-,suffix=,format=short
+            type=semver,pattern={{version}}
+
+      - name: Docker build and push
+        uses: docker/build-push-action@v3
+        with:
+          context: .
+          file: builds/Dockerfile
+          push: true
+          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.meta.outputs.tags }}
