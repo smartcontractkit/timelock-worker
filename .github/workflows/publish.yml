@@ -25,7 +25,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build and push image
-        uses: smartcontractkit/.github/actions/cicd-build-publish-artifacts-go
+        uses: smartcontractkit/.github/actions/cicd-build-publish-artifacts-go@25645c21796ebb5554693fcc0d312dc88330fbe0 # cicd-build-publish-artifacts-go@0.2.0
         with:
           # general inputs
           app-name: timelock-worker
