@@ -35,7 +35,6 @@ func configureRootCmd() error {
 	rootCmd.AddCommand(
 		versionCommand(),
 		startCommand(),
-		serverCommand(),
 	)
 
 	// Global flags

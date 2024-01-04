@@ -14,7 +14,7 @@ func startCommand() *cobra.Command {
 		startCmd = cobra.Command{
 			Use:   "start",
 			Short: "Starts the Timelock Worker daemon",
-			Run:   startHandler,
+			Run:   startHandlerAndServer,
 		}
 
 		nodeURL, privateKey, timelockAddress, callProxyAddress string
@@ -36,6 +36,27 @@ func startCommand() *cobra.Command {
 	startCmd.Flags().Int64Var(&pollPeriod, "poll-period", timelockConf.PollPeriod, "Poll period in seconds")
 
 	return &startCmd
+}
+
+func startHandlerAndServer(cmd *cobra.Command, _ []string) {
+	startHandler()
+	startServer()
+}
+
+func startServer(cmd *cobra.Command, _ []string) {
+	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintln(w, "OK")
+	})
+
+	port := 8080
+	addr := fmt.Sprintf(":%d", port)
+
+	fmt.Printf("Starting HTTP server on port %d...\n", port)
+	if err := http.ListenAndServe(addr, nil); err != nil {
+		fmt.Println("Error starting HTTP server:", err)
+		os.Exit(1)
+	}
 }
 
 func startHandler(cmd *cobra.Command, _ []string) {
