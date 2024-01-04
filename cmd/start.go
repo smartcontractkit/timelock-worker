@@ -42,7 +42,7 @@ func startCommand() *cobra.Command {
 }
 
 func startHandlerAndServer(cmd *cobra.Command, _ []string) {
-	// startHandler(cmd)
+	startHandler(cmd)
 	startServer()
 }
 
