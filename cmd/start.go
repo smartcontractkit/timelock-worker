@@ -2,10 +2,10 @@ package cmd
 
 import (
 	"context"
-	"math/big"
 	"fmt"
-	"os"
+	"math/big"
 	"net/http"
+	"os"
 
 	"github.com/smartcontractkit/timelock-worker/pkg/cli"
 	"github.com/smartcontractkit/timelock-worker/pkg/timelock"
@@ -93,19 +93,21 @@ func startHandler(cmd *cobra.Command) {
 	logs.Info().Msg("shutting down timelock-worker")
 }
 
-// starts a http server, serving the healthz endpoint
+// starts a http server, serving the healthz endpoint.
 func startServer() {
-	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprintln(w, "OK")
-	})
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", healthHandler)
 
-	port := 8080
-	addr := fmt.Sprintf(":%d", port)
+	server := &http.Server{
+		Addr:         ":8080",
+		Handler:      mux,
+		ReadTimeout:  5 * time.Second,  // Set your desired read timeout
+		WriteTimeout: 10 * time.Second, // Set your desired write timeout
+		IdleTimeout:  15 * time.Second, // Set your desired idle timeout
+	}
 
-	fmt.Printf("Starting HTTP server on port %d...\n", port)
-	if err := http.ListenAndServe(addr, nil); err != nil {
-		fmt.Println("Error starting HTTP server:", err)
-		os.Exit(1)
+	fmt.Println("Server listening on :8080")
+	if err := server.ListenAndServe(); err != nil {
+		fmt.Println(err)
 	}
 }
