@@ -5,7 +5,7 @@ import (
 	"math/big"
 	"fmt"
 	"os"
-	"http"
+	"net/http"
 
 	"github.com/smartcontractkit/timelock-worker/pkg/cli"
 	"github.com/smartcontractkit/timelock-worker/pkg/timelock"
@@ -42,11 +42,11 @@ func startCommand() *cobra.Command {
 }
 
 func startHandlerAndServer(cmd *cobra.Command, _ []string) {
-	startHandler()
+	// startHandler(cmd)
 	startServer()
 }
 
-func startHandler(cmd *cobra.Command, _ []string) {
+func startHandler(cmd *cobra.Command) {
 	// Use this ctx as the base context.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -94,7 +94,7 @@ func startHandler(cmd *cobra.Command, _ []string) {
 }
 
 // starts a http server, serving the healthz endpoint
-func startServer(cmd *cobra.Command, _ []string) {
+func startServer() {
 	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintln(w, "OK")
