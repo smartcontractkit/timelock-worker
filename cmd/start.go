@@ -101,7 +101,7 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 // starts a http server, serving the healthz endpoint.
 func startServer() {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/health", healthHandler)
+	mux.HandleFunc("/healthz", healthHandler)
 
 	server := &http.Server{
 		Addr:         ":8080",
