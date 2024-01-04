@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"math/big"
 	"net/http"
-	"os"
+	"time"
 
 	"github.com/smartcontractkit/timelock-worker/pkg/cli"
 	"github.com/smartcontractkit/timelock-worker/pkg/timelock"
@@ -91,6 +91,11 @@ func startHandler(cmd *cobra.Command) {
 	}
 
 	logs.Info().Msg("shutting down timelock-worker")
+}
+
+func healthHandler(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprint(w, "OK")
 }
 
 // starts a http server, serving the healthz endpoint.
