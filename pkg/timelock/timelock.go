@@ -11,7 +11,6 @@ import (
 	"sync"
 	"syscall"
 	"time"
-	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -128,7 +127,7 @@ func NewTimelockWorker(nodeURL, timelockAddress, callProxyAddress, privateKey st
 
 // Listen is the main function of a Timelock Worker, it subscribes to events using the ethClient
 // and targeting the contract address set.
-func (tw *Worker) Listen(ctx context.Context, healthStatus *atomic.Value) error {
+func (tw *Worker) Listen(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -174,7 +173,7 @@ func (tw *Worker) Listen(ctx context.Context, healthStatus *atomic.Value) error 
 	}()
 
 	// Setting healthStatus here because we want to make sure subscription is up.
-	healthStatus.Store("OK")
+	SetHealthStatus(HealthStatusOK)
 
 	// This is the goroutine watching over the subscription.
 	// We want wg.Done() to cancel the whole execution, so don't add more than 1 to wg.
@@ -241,13 +240,13 @@ func (tw *Worker) Listen(ctx context.Context, healthStatus *atomic.Value) error 
 				if err != nil {
 					tw.logger.Info().Msgf("subscription: %s", err.Error())
 					loop = false
-					healthStatus.Store("Error")
+					SetHealthStatus(timelock.HealthStatusError)
 				}
 
 			case signal := <-stopCh:
 				tw.logger.Info().Msgf("received OS signal %s", signal)
 				loop = false
-				healthStatus.Store("Error")
+				SetHealthStatus(timelock.HealthStatusError)
 			}
 		}
 		wg.Done()
