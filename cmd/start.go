@@ -86,12 +86,12 @@ func startTimelock(ctx context.Context, cmd *cobra.Command) {
 	}
 
 	
-	tWorker, err := timelock.NewTimelockWorker(nodeURL, timelockAddress, callProxyAddress, privateKey, big.NewInt(fromBlock), pollPeriod, logs, &healthStatus)
+	tWorker, err := timelock.NewTimelockWorker(nodeURL, timelockAddress, callProxyAddress, privateKey, big.NewInt(fromBlock), pollPeriod, logs)
 	if err != nil {
 		logs.Fatal().Msgf("error creating the timelock-worker: %s", err.Error())
 	}
 
-	if err := tWorker.Listen(ctx); err != nil {
+	if err := tWorker.Listen(ctx, &healthStatus); err != nil {
 		logs.Fatal().Msgf("error while starting timelock-worker: %s", err.Error())
 	}
 

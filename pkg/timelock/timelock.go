@@ -42,13 +42,12 @@ type Worker struct {
 	pollPeriod      int64
 	logger          *zerolog.Logger
 	privateKey      *ecdsa.PrivateKey
-	healthStatus 		*atomic.Value
 	scheduler
 }
 
 // NewTimelockWorker initializes and returns a timelockWorker.
 // It's a singleton, so further executions will retrieve the same timelockWorker.
-func NewTimelockWorker(nodeURL, timelockAddress, callProxyAddress, privateKey string, fromBlock *big.Int, pollPeriod int64, logger *zerolog.Logger, healthStatus *atomic.Value) (*Worker, error) {
+func NewTimelockWorker(nodeURL, timelockAddress, callProxyAddress, privateKey string, fromBlock *big.Int, pollPeriod int64, logger *zerolog.Logger) (*Worker, error) {
 	// Sanity check on each provided variable before allocating more resources.
 	u, err := url.ParseRequestURI(nodeURL)
 	if err != nil {
@@ -121,7 +120,6 @@ func NewTimelockWorker(nodeURL, timelockAddress, callProxyAddress, privateKey st
 		pollPeriod:      pollPeriod,
 		logger:          logger,
 		privateKey:      privateKeyECDSA,
-		healthStatus: 	 healthStatus,
 		scheduler:       *newScheduler(defaultSchedulerDelay),
 	}
 
@@ -130,7 +128,7 @@ func NewTimelockWorker(nodeURL, timelockAddress, callProxyAddress, privateKey st
 
 // Listen is the main function of a Timelock Worker, it subscribes to events using the ethClient
 // and targeting the contract address set.
-func (tw *Worker) Listen(ctx context.Context) error {
+func (tw *Worker) Listen(ctx context.Context, healthStatus *atomic.Value) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -176,7 +174,7 @@ func (tw *Worker) Listen(ctx context.Context) error {
 	}()
 
 	// Setting healthStatus here because we want to make sure subscription is up.
-	tw.healthStatus.Store("OK")
+	healthStatus.Store("OK")
 
 	// This is the goroutine watching over the subscription.
 	// We want wg.Done() to cancel the whole execution, so don't add more than 1 to wg.
@@ -243,13 +241,13 @@ func (tw *Worker) Listen(ctx context.Context) error {
 				if err != nil {
 					tw.logger.Info().Msgf("subscription: %s", err.Error())
 					loop = false
-					tw.healthStatus.Store("Error")
+					healthStatus.Store("Error")
 				}
 
 			case signal := <-stopCh:
 				tw.logger.Info().Msgf("received OS signal %s", signal)
 				loop = false
-				tw.healthStatus.Store("Error")
+				healthStatus.Store("Error")
 			}
 		}
 		wg.Done()
