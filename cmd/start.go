@@ -91,7 +91,6 @@ func startTimelock(ctx context.Context, cmd *cobra.Command) {
 	}
 
 	logs.Info().Msg("shutting down timelock-worker")
-
 }
 
 func startHTTPHealthServer() {
