@@ -240,13 +240,13 @@ func (tw *Worker) Listen(ctx context.Context) error {
 				if err != nil {
 					tw.logger.Info().Msgf("subscription: %s", err.Error())
 					loop = false
-					SetHealthStatus(timelock.HealthStatusError)
+					SetHealthStatus(HealthStatusError)
 				}
 
 			case signal := <-stopCh:
 				tw.logger.Info().Msgf("received OS signal %s", signal)
 				loop = false
-				SetHealthStatus(timelock.HealthStatusError)
+				SetHealthStatus(HealthStatusError)
 			}
 		}
 		wg.Done()
