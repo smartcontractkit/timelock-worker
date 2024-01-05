@@ -11,6 +11,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -41,12 +42,13 @@ type Worker struct {
 	pollPeriod      int64
 	logger          *zerolog.Logger
 	privateKey      *ecdsa.PrivateKey
+	healthStatus 		*atomic.Value
 	scheduler
 }
 
 // NewTimelockWorker initializes and returns a timelockWorker.
 // It's a singleton, so further executions will retrieve the same timelockWorker.
-func NewTimelockWorker(nodeURL, timelockAddress, callProxyAddress, privateKey string, fromBlock *big.Int, pollPeriod int64, logger *zerolog.Logger) (*Worker, error) {
+func NewTimelockWorker(nodeURL, timelockAddress, callProxyAddress, privateKey string, fromBlock *big.Int, pollPeriod int64, logger *zerolog.Logger, healthStatus *atomic.Value) (*Worker, error) {
 	// Sanity check on each provided variable before allocating more resources.
 	u, err := url.ParseRequestURI(nodeURL)
 	if err != nil {
@@ -119,6 +121,7 @@ func NewTimelockWorker(nodeURL, timelockAddress, callProxyAddress, privateKey st
 		pollPeriod:      pollPeriod,
 		logger:          logger,
 		privateKey:      privateKeyECDSA,
+		healthStatus: 	 healthStatus,
 		scheduler:       *newScheduler(defaultSchedulerDelay),
 	}
 
@@ -171,6 +174,10 @@ func (tw *Worker) Listen(ctx context.Context) error {
 			logCh <- l
 		}
 	}()
+
+	// Setting healthStatus here because we want to make sure subscription is up.
+	tw.healthStatus.Store("OK")
+	status := tw.healthStatus.Load().(string)
 
 	// This is the goroutine watching over the subscription.
 	// We want wg.Done() to cancel the whole execution, so don't add more than 1 to wg.
@@ -237,11 +244,13 @@ func (tw *Worker) Listen(ctx context.Context) error {
 				if err != nil {
 					tw.logger.Info().Msgf("subscription: %s", err.Error())
 					loop = false
+					tw.healthStatus.Store("Error")
 				}
 
 			case signal := <-stopCh:
 				tw.logger.Info().Msgf("received OS signal %s", signal)
 				loop = false
+				tw.healthStatus.Store("Error")
 			}
 		}
 		wg.Done()

@@ -6,18 +6,21 @@ import (
 	"math/big"
 	"net/http"
 	"time"
+	"sync/atomic"
 
 	"github.com/smartcontractkit/timelock-worker/pkg/cli"
 	"github.com/smartcontractkit/timelock-worker/pkg/timelock"
 	"github.com/spf13/cobra"
 )
 
+var healthStatus atomic.Value
+
 func startCommand() *cobra.Command {
 	var (
 		startCmd = cobra.Command{
 			Use:   "start",
 			Short: "Starts the Timelock Worker daemon",
-			Run:   startHandlerAndServer,
+			Run:   startHandler,
 		}
 
 		nodeURL, privateKey, timelockAddress, callProxyAddress string
@@ -30,6 +33,7 @@ func startCommand() *cobra.Command {
 	if err != nil {
 		logs.Fatal().Msgf("error initializing configuration: %s", err.Error())
 	}
+	healthStatus.Store("Error")
 
 	startCmd.Flags().StringVarP(&nodeURL, "node-url", "n", timelockConf.NodeURL, "RPC Endpoint for the target blockchain")
 	startCmd.Flags().StringVarP(&timelockAddress, "timelock-address", "a", timelockConf.TimelockAddress, "Address of the target Timelock contract")
@@ -41,15 +45,15 @@ func startCommand() *cobra.Command {
 	return &startCmd
 }
 
-func startHandlerAndServer(cmd *cobra.Command, _ []string) {
-	startHandler(cmd)
-	startServer()
-}
-
-func startHandler(cmd *cobra.Command) {
+func startHandler(cmd *cobra.Command, _ []string) {
 	// Use this ctx as the base context.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	go startHTTPHealthServer()
+	startTimelock(ctx, cmd)
+}
+
+func startTimelock(ctx context.Context, cmd *cobra.Command) {
 
 	nodeURL, err := cmd.Flags().GetString("node-url")
 	if err != nil {
@@ -81,7 +85,8 @@ func startHandler(cmd *cobra.Command) {
 		logs.Fatal().Msgf("value of poll-period not set: %s", err.Error())
 	}
 
-	tWorker, err := timelock.NewTimelockWorker(nodeURL, timelockAddress, callProxyAddress, privateKey, big.NewInt(fromBlock), pollPeriod, logs)
+	
+	tWorker, err := timelock.NewTimelockWorker(nodeURL, timelockAddress, callProxyAddress, privateKey, big.NewInt(fromBlock), pollPeriod, logs, &healthStatus)
 	if err != nil {
 		logs.Fatal().Msgf("error creating the timelock-worker: %s", err.Error())
 	}
@@ -91,15 +96,21 @@ func startHandler(cmd *cobra.Command) {
 	}
 
 	logs.Info().Msg("shutting down timelock-worker")
+
 }
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprint(w, "OK")
+	status := healthStatus.Load().(string)
+	if status == "OK" {
+		w.Write([]byte("OK"))
+ } else {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("Error"))
+ }
 }
 
 // starts a http server, serving the healthz endpoint.
-func startServer() {
+func startHTTPHealthServer() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", healthHandler)
 
