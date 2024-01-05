@@ -25,5 +25,5 @@ jobs:
         uses: golangci/golangci-lint-action@v3
         with:
           version: v${{ steps.tool-versions.outputs.golangci-lint_version }}
-          args: -v --timeout=5m
+          args: -v --timeout=5m --out-format=colored-line-number
           only-new-issues: true
