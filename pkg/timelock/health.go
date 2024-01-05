@@ -30,11 +30,16 @@ func GetHealthStatus() HealthStatus {
 // Respond to liveness probe based on health status.
 func healthHandler(w http.ResponseWriter, r *http.Request) {
 	status := GetHealthStatus()
+	var err error
 	if status == HealthStatusOK {
-		w.Write([]byte("OK"))
+		_, err = w.Write([]byte("OK"))
 	} else {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("Error"))
+		_, err = w.Write([]byte("Error"))
+	}
+
+	if err != nil {
+		fmt.Println("Error writing response:", err)
 	}
 }
 
