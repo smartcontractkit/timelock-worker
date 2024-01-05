@@ -177,7 +177,6 @@ func (tw *Worker) Listen(ctx context.Context) error {
 
 	// Setting healthStatus here because we want to make sure subscription is up.
 	tw.healthStatus.Store("OK")
-	status := tw.healthStatus.Load().(string)
 
 	// This is the goroutine watching over the subscription.
 	// We want wg.Done() to cancel the whole execution, so don't add more than 1 to wg.
