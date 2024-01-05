@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// HealthStatus represents the health status enum
+// HealthStatus represents the health status enum.
 type HealthStatus int
 
 const (
@@ -17,12 +17,12 @@ const (
 
 var healthStatus atomic.Value
 
-// SetHealthStatus sets the health status
+// SetHealthStatus sets the health status.
 func SetHealthStatus(status HealthStatus) {
 	healthStatus.Store(status)
 }
 
-// GetHealthStatus gets the current health status
+// GetHealthStatus gets the current health status.
 func GetHealthStatus() HealthStatus {
 	return healthStatus.Load().(HealthStatus)
 }

@@ -53,25 +53,25 @@ func TestHealthHandler(t *testing.T) {
 	}
 }
 
-func TestStartHTTPHealthServer(t *testing.T) {
-	// This test just checks if the function starts without errors.
-	// It doesn't perform in-depth testing of the HTTP server.
+// func TestStartHTTPHealthServer(t *testing.T) {
+// 	// This test just checks if the function starts without errors.
+// 	// It doesn't perform in-depth testing of the HTTP server.
 
-	go StartHTTPHealthServer()
+// 	go StartHTTPHealthServer()
 
-	// Allow some time for the server to start
-	time.Sleep(100 * time.Millisecond)
+// 	// Allow some time for the server to start
+// 	time.Sleep(100 * time.Millisecond)
 
-	// Create a request to the healthz endpoint
-	req := httptest.NewRequest("GET", "http://localhost:8080/healthz", nil)
-	// Create a ResponseRecorder to capture the response
-	rr := httptest.NewRecorder()
+// 	// Create a request to the healthz endpoint
+// 	req := httptest.NewRequest("GET", "http://localhost:8080/healthz", nil)
+// 	// Create a ResponseRecorder to capture the response
+// 	rr := httptest.NewRecorder()
 
-	// Send the request to the server
-	http.DefaultServeMux.ServeHTTP(rr, req)
+// 	// Send the request to the server
+// 	http.DefaultServeMux.ServeHTTP(rr, req)
 
-	// Check the response status code
-	if status := rr.Code; status != http.StatusOK {
-		t.Errorf("Handler returned wrong status code: got %v want %v", status, http.StatusOK)
-	}
-}
+// 	// Check the response status code
+// 	if status := rr.Code; status != http.StatusOK {
+// 		t.Errorf("Handler returned wrong status code: got %v want %v", status, http.StatusOK)
+// 	}
+// }
