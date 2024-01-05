@@ -172,6 +172,9 @@ func (tw *Worker) Listen(ctx context.Context) error {
 		}
 	}()
 
+	// Setting healthStatus here because we want to make sure subscription is up.
+	SetHealthStatus(HealthStatusOK)
+
 	// This is the goroutine watching over the subscription.
 	// We want wg.Done() to cancel the whole execution, so don't add more than 1 to wg.
 	// Also, when receiving an event that creates an error, skip the event and
@@ -237,11 +240,13 @@ func (tw *Worker) Listen(ctx context.Context) error {
 				if err != nil {
 					tw.logger.Info().Msgf("subscription: %s", err.Error())
 					loop = false
+					SetHealthStatus(HealthStatusError)
 				}
 
 			case signal := <-stopCh:
 				tw.logger.Info().Msgf("received OS signal %s", signal)
 				loop = false
+				SetHealthStatus(HealthStatusError)
 			}
 		}
 		wg.Done()
