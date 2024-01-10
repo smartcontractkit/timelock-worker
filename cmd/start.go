@@ -50,7 +50,6 @@ func startHandler(cmd *cobra.Command, _ []string) {
 }
 
 func startTimelock(ctx context.Context, cmd *cobra.Command) {
-
 	nodeURL, err := cmd.Flags().GetString("node-url")
 	if err != nil {
 		logs.Fatal().Msgf("value of node-url not set: %s", err.Error())
