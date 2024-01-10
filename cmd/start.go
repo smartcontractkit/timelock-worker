@@ -27,6 +27,9 @@ func startCommand() *cobra.Command {
 	if err != nil {
 		logs.Fatal().Msgf("error initializing configuration: %s", err.Error())
 	}
+	// Set healthStatus to error on startup.
+	// Will be set to "ok" once the rpc connection and subscription is successful.
+	timelock.SetHealthStatus(timelock.HealthStatusError)
 
 	startCmd.Flags().StringVarP(&nodeURL, "node-url", "n", timelockConf.NodeURL, "RPC Endpoint for the target blockchain")
 	startCmd.Flags().StringVarP(&timelockAddress, "timelock-address", "a", timelockConf.TimelockAddress, "Address of the target Timelock contract")
@@ -42,6 +45,11 @@ func startHandler(cmd *cobra.Command, _ []string) {
 	// Use this ctx as the base context.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	go startHTTPHealthServer()
+	startTimelock(ctx, cmd)
+}
+
+func startTimelock(ctx context.Context, cmd *cobra.Command) {
 
 	nodeURL, err := cmd.Flags().GetString("node-url")
 	if err != nil {
@@ -83,4 +91,8 @@ func startHandler(cmd *cobra.Command, _ []string) {
 	}
 
 	logs.Info().Msg("shutting down timelock-worker")
+}
+
+func startHTTPHealthServer() {
+	timelock.StartHTTPHealthServer()
 }
