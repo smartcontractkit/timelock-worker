@@ -3,7 +3,7 @@ module github.com/smartcontractkit/timelock-worker
 go 1.20
 
 require (
-	github.com/ethereum/go-ethereum v1.13.8
+	github.com/ethereum/go-ethereum v1.13.10
 	github.com/rs/zerolog v1.31.0
 	github.com/spf13/cobra v1.8.0
 	github.com/spf13/viper v1.17.0
