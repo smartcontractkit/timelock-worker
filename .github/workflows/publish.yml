@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - develop
+      - test-build
     tags:
       - "v*"
 
@@ -59,7 +60,7 @@ jobs:
             type=semver,pattern={{version}}
 
       - name: Docker build and push
-        uses: docker/build-push-action@v3
+        uses: docker/build-push-action@ac9327eae2b366085ac7f6a2d02df8aa8ead720a # v2.10.0
         with:
           context: .
           file: builds/Dockerfile
