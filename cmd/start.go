@@ -29,7 +29,7 @@ func startCommand() *cobra.Command {
 	}
 	// Set healthStatus to error on startup.
 	// Will be set to "ok" once the rpc connection and subscription is successful.
-	timelock.SetHealthStatus(timelock.HealthStatusError)
+	timelock.SetHealthStatus(timelock.HealthStatusOK)
 
 	startCmd.Flags().StringVarP(&nodeURL, "node-url", "n", timelockConf.NodeURL, "RPC Endpoint for the target blockchain")
 	startCmd.Flags().StringVarP(&timelockAddress, "timelock-address", "a", timelockConf.TimelockAddress, "Address of the target Timelock contract")
