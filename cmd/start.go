@@ -27,7 +27,7 @@ func startCommand() *cobra.Command {
 	if err != nil {
 		logs.Fatal().Msgf("error initializing configuration: %s", err.Error())
 	}
-	// Set healthStatus to OK on startup.
+	// Set liveStatus to OK on startup.
 	// Set readyStatus to Error on startup.
 	// Will be set to OK once the rpc connection and subscription is successful.
 	timelock.SetLiveStatus(timelock.HealthStatusOK)

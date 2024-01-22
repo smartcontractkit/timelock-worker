@@ -7,7 +7,7 @@ import (
 )
 
 func TestHealthHandler(t *testing.T) {
-	// Initialize healthStatus to HealthStatusOK
+	// Initialize liveStatus to HealthStatusOK
 	SetLiveStatus(HealthStatusOK)
 
 	// Create a request to the healthz endpoint
@@ -29,7 +29,7 @@ func TestHealthHandler(t *testing.T) {
 		t.Errorf("Handler returned unexpected body: got %v want %v", body, expectedBody)
 	}
 
-	// Change healthStatus to HealthStatusError
+	// Change liveStatus to HealthStatusError
 	SetLiveStatus(HealthStatusError)
 
 	// Create a new request to the healthz endpoint

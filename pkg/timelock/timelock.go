@@ -8,10 +8,10 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
-	"strings"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -76,7 +76,7 @@ func NewTimelockWorker(nodeURL, timelockAddress, callProxyAddress, privateKey st
 	}
 
 	useBlockOffset := false
-	if strings.Contains(nodeURL, "avalanche-testnet") ||  strings.Contains(nodeURL, "base-testnet") {
+	if strings.Contains(nodeURL, "avalanche-testnet") || strings.Contains(nodeURL, "base-testnet") {
 		useBlockOffset = true
 	}
 
@@ -196,7 +196,7 @@ func (tw *Worker) Listen(ctx context.Context) error {
 		}
 	}()
 
-	// Setting healthStatus here because we want to make sure subscription is up.
+	// Setting readyStatus here because we want to make sure subscription is up.
 	tw.logger.Info().Msgf("Initial subscription complete")
 	SetReadyStatus(HealthStatusOK)
 
