@@ -36,16 +36,16 @@ func GetReadyStatus() HealthStatus {
 
 func liveHandler(w http.ResponseWriter, r *http.Request) {
 	status := GetLiveStatus()
-	respond(status, w, r)
+	respond(status, w)
 }
 
 // Respond to readiness probe based on ready status.
 func readyHandler(w http.ResponseWriter, r *http.Request) {
 	status := GetReadyStatus()
-	respond(status, w, r)
+	respond(status, w)
 }
 
-func respond(status HealthStatus, w http.ResponseWriter, r *http.Request) {
+func respond(status HealthStatus, w http.ResponseWriter) {
 	var err error
 	if status == HealthStatusOK {
 		_, err = w.Write([]byte("OK"))
