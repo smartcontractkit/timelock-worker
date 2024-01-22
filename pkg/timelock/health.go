@@ -15,21 +15,37 @@ const (
 	HealthStatusError
 )
 
-var healthStatus atomic.Value
+var liveStatus atomic.Value
+var readyStatus atomic.Value
 
-// SetHealthStatus sets the health status.
-func SetHealthStatus(status HealthStatus) {
-	healthStatus.Store(status)
+func SetLiveStatus(status HealthStatus) {
+	liveStatus.Store(status)
 }
 
-// GetHealthStatus gets the current health status.
-func GetHealthStatus() HealthStatus {
-	return healthStatus.Load().(HealthStatus)
+func GetLiveStatus() HealthStatus {
+	return liveStatus.Load().(HealthStatus)
 }
 
-// Respond to liveness probe based on health status.
-func healthHandler(w http.ResponseWriter, r *http.Request) {
-	status := GetHealthStatus()
+func SetReadyStatus(status HealthStatus) {
+	readyStatus.Store(status)
+}
+
+func GetReadyStatus() HealthStatus {
+	return readyStatus.Load().(HealthStatus)
+}
+
+func liveHandler(w http.ResponseWriter, r *http.Request) {
+	status := GetLiveStatus()
+	respond(status, w, r)
+}
+
+// Respond to readiness probe based on ready status.
+func readyHandler(w http.ResponseWriter, r *http.Request) {
+	status := GetReadyStatus()
+	respond(status, w, r)
+}
+
+func respond(status HealthStatus, w http.ResponseWriter, r *http.Request) {
 	var err error
 	if status == HealthStatusOK {
 		_, err = w.Write([]byte("OK"))
@@ -46,7 +62,8 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 // Starts a http server, serving the healthz endpoint.
 func StartHTTPHealthServer() {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", healthHandler)
+	mux.HandleFunc("/healthz", liveHandler)
+	mux.HandleFunc("/ready", readyHandler)
 
 	server := &http.Server{
 		Addr:         ":8080",

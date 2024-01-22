@@ -8,15 +8,15 @@ import (
 
 func TestHealthHandler(t *testing.T) {
 	// Initialize healthStatus to HealthStatusOK
-	SetHealthStatus(HealthStatusOK)
+	SetLiveStatus(HealthStatusOK)
 
 	// Create a request to the healthz endpoint
 	req := httptest.NewRequest("GET", "http://example.com/healthz", nil)
 	// Create a ResponseRecorder to capture the response
 	rr := httptest.NewRecorder()
 
-	// Call the healthHandler function
-	healthHandler(rr, req)
+	// Call the liveHandler function
+	liveHandler(rr, req)
 
 	// Check the response status code
 	if status := rr.Code; status != http.StatusOK {
@@ -30,15 +30,15 @@ func TestHealthHandler(t *testing.T) {
 	}
 
 	// Change healthStatus to HealthStatusError
-	SetHealthStatus(HealthStatusError)
+	SetLiveStatus(HealthStatusError)
 
 	// Create a new request to the healthz endpoint
 	req = httptest.NewRequest("GET", "http://example.com/healthz", nil)
 	// Create a new ResponseRecorder
 	rr = httptest.NewRecorder()
 
-	// Call the healthHandler function again
-	healthHandler(rr, req)
+	// Call the liveHandler function again
+	liveHandler(rr, req)
 
 	// Check the response status code
 	if status := rr.Code; status != http.StatusInternalServerError {
