@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -39,7 +38,6 @@ type Worker struct {
 	ABI             *abi.ABI
 	address         []common.Address
 	fromBlock       *big.Int
-	useBlockOffset  bool
 	pollPeriod      int64
 	logger          *zerolog.Logger
 	privateKey      *ecdsa.PrivateKey
@@ -73,11 +71,6 @@ func NewTimelockWorker(nodeURL, timelockAddress, callProxyAddress, privateKey st
 
 	if fromBlock.Int64() < big.NewInt(0).Int64() {
 		return nil, fmt.Errorf("from block can't be a negative number (minimum value 0): got %d", pollPeriod)
-	}
-
-	useBlockOffset := false
-	if strings.Contains(nodeURL, "avalanche-testnet") || strings.Contains(nodeURL, "base-testnet") {
-		useBlockOffset = true
 	}
 
 	if _, err := crypto.HexToECDSA(privateKey); err != nil {
@@ -126,7 +119,6 @@ func NewTimelockWorker(nodeURL, timelockAddress, callProxyAddress, privateKey st
 		pollPeriod:      pollPeriod,
 		logger:          logger,
 		privateKey:      privateKeyECDSA,
-		useBlockOffset:  useBlockOffset,
 		scheduler:       *newScheduler(defaultSchedulerDelay),
 	}
 
@@ -155,21 +147,6 @@ func (tw *Worker) Listen(ctx context.Context) error {
 			handleOSSignal(<-sigCh, stopCh)
 		}
 	}()
-
-	if tw.useBlockOffset {
-		tw.logger.Info().Msgf("RPC takes time to respond, will set closer blockOffset")
-		latestBlockNumber, err := tw.ethClient.BlockNumber(ctx)
-		if err != nil {
-			return err
-		}
-		tw.logger.Info().Msgf("Queried latest block number %v", latestBlockNumber)
-		if latestBlockNumber >= 10000 {
-			tw.fromBlock = new(big.Int).SetUint64(latestBlockNumber - 10000)
-		} else {
-			tw.fromBlock = new(big.Int).SetUint64(latestBlockNumber)
-		}
-		tw.logger.Info().Msgf("Setting from-block to %v", tw.fromBlock.String())
-	}
 
 	// FilterQuery to be feed to the subscription and FilterLogs.
 	query := ethereum.FilterQuery{
