@@ -154,6 +154,7 @@ func (tw *Worker) Listen(ctx context.Context) error {
 		FromBlock: tw.fromBlock,
 	}
 
+	tw.logger.Info().Msgf("Starting subscription")
 	// Create the new subscription with the predefined query.
 	sub, err := tw.ethClient.SubscribeFilterLogs(ctx, query, logCh)
 	if err != nil {
@@ -172,8 +173,9 @@ func (tw *Worker) Listen(ctx context.Context) error {
 		}
 	}()
 
-	// Setting healthStatus here because we want to make sure subscription is up.
-	SetHealthStatus(HealthStatusOK)
+	// Setting readyStatus here because we want to make sure subscription is up.
+	tw.logger.Info().Msgf("Initial subscription complete")
+	SetReadyStatus(HealthStatusOK)
 
 	// This is the goroutine watching over the subscription.
 	// We want wg.Done() to cancel the whole execution, so don't add more than 1 to wg.
@@ -240,13 +242,13 @@ func (tw *Worker) Listen(ctx context.Context) error {
 				if err != nil {
 					tw.logger.Info().Msgf("subscription: %s", err.Error())
 					loop = false
-					SetHealthStatus(HealthStatusError)
+					SetReadyStatus(HealthStatusError)
 				}
 
 			case signal := <-stopCh:
 				tw.logger.Info().Msgf("received OS signal %s", signal)
 				loop = false
-				SetHealthStatus(HealthStatusError)
+				SetReadyStatus(HealthStatusError)
 			}
 		}
 		wg.Done()
