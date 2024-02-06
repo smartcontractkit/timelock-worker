@@ -4,11 +4,13 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"sort"
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/smartcontractkit/timelock-worker/pkg/timelock/contract"
 )
 
@@ -130,7 +132,7 @@ func (tw *Worker) isSchedulerBusy() bool {
 
 // dumpOperationStore dumps to the logger and to the log file the current scheduled unexecuted operations.
 // maps in go don't guarantee order, so that's why we have to find the earliest block.
-func (tw *Worker) dumpOperationStore() {
+func (tw *Worker) dumpOperationStore(now func() time.Time) {
 	if len(tw.store) > 0 {
 		f, err := os.Create(logPath + logFile)
 		if err != nil {
@@ -140,12 +142,6 @@ func (tw *Worker) dumpOperationStore() {
 
 		tw.logger.Info().Msgf("generating logs with pending operations in %s", logPath+logFile)
 
-		w := bufio.NewWriter(f)
-		_, err = fmt.Fprintf(w, "Process stopped at %v\n", time.Now().In(time.UTC))
-		if err != nil {
-			tw.logger.Fatal().Msgf("error writing to buffer: %s", err.Error())
-		}
-
 		// Get the earliest block from all the operations stored by sorting them.
 		blocks := make([]int, 0)
 		for _, op := range tw.store {
@@ -153,22 +149,63 @@ func (tw *Worker) dumpOperationStore() {
 		}
 		sort.Ints(blocks)
 
-		for _, op := range tw.store {
-			if int(op[0].Raw.BlockNumber) == blocks[0] {
-				tw.logger.Info().Hex(fieldTXHash, op[0].Raw.TxHash[:]).Uint64(fieldBlockNumber, op[0].Raw.BlockNumber).Msgf("earliest unexecuted CallSchedule. Use this block number when spinning up the service again, with the environment variable or in timelock.env as FROM_BLOCK=%v, or using the flag --from-block=%v", op[0].Raw.BlockNumber, op[0].Raw.BlockNumber)
-				_, err = fmt.Fprintf(w, "Earliest CallSchedule pending ID: %x\tBlock Number: %v\n\tUse this block number to ensure all pending operations are properly executed.\n\tSet it as environment variable or in timelock.env with FROM_BLOCK=%v, or as a flag with --from-block=%v\n", op[0].Id, op[0].Raw.BlockNumber, op[0].Raw.BlockNumber, op[0].Raw.BlockNumber)
-				if err != nil {
-					tw.logger.Fatal().Msgf("error writing to buffer: %s", err.Error())
-				}
-			} else {
-				_, err = fmt.Fprintf(w, "CallSchedule pending ID: %x\tBlock Number: %v\n", op[0].Id, op[0].Raw.BlockNumber)
-				tw.logger.Info().Hex(fieldTXHash, op[0].Raw.TxHash[:]).Uint64(fieldBlockNumber, op[0].Raw.BlockNumber).Msgf("CallSchedule pending")
-				if err != nil {
-					tw.logger.Fatal().Msgf("error writing to buffer: %s", err.Error())
-				}
-			}
-		}
+		w := bufio.NewWriter(f)
+
+		writeOperationStore(w, tw.logger, tw.store, blocks[0], now)
 
 		w.Flush()
 	}
+}
+
+// writeOperationStore writes the operations to the writer.
+func writeOperationStore(
+	w io.Writer,
+	logger *zerolog.Logger,
+	store map[operationKey][]*contract.TimelockCallScheduled,
+	earliest int,
+	now func() time.Time,
+) {
+	var (
+		err error
+		op  *contract.TimelockCallScheduled
+		msg string
+	)
+
+	_, err = fmt.Fprintf(w, "Process stopped at %v\n", now().In(time.UTC))
+	if err != nil {
+		logger.Fatal().Msgf("error writing to buffer: %s", err.Error())
+	}
+
+	for _, record := range store {
+		op = record[0]
+
+		if int(op.Raw.BlockNumber) == earliest {
+			logLine := fmt.Sprintf("earliest unexecuted CallSchedule. Use this block number when "+
+				"spinning up the service again, with the environment variable or in timelock.env as FROM_BLOCK=%v, "+
+				"or using the flag --from-block=%v", op.Raw.BlockNumber, op.Raw.BlockNumber)
+			logger.Info().Hex(fieldTXHash, op.Raw.TxHash[:]).Uint64(fieldBlockNumber, op.Raw.BlockNumber).Msg(logLine)
+			msg = toEarliestRecord(op)
+		} else {
+			logger.Info().Hex(fieldTXHash, op.Raw.TxHash[:]).Uint64(fieldBlockNumber, op.Raw.BlockNumber).Msgf("CallSchedule pending")
+			msg = toSubsequentRecord(op)
+		}
+
+		_, err = fmt.Fprint(w, msg)
+		if err != nil {
+			logger.Fatal().Msgf("error writing to buffer: %s", err.Error())
+		}
+	}
+}
+
+// toEarliestRecord returns a string with the earliest record.
+func toEarliestRecord(op *contract.TimelockCallScheduled) string {
+	tmpl := "Earliest CallSchedule pending ID: %x\tBlock Number: %v\n" +
+		"\tUse this block number to ensure all pending operations are properly executed.  " +
+		"\tSet it as environment variable or in timelock.env with FROM_BLOCK=%v, or as a flag with --from-block=%v\n"
+	return fmt.Sprintf(tmpl, op.Id, op.Raw.BlockNumber, op.Raw.BlockNumber, op.Raw.BlockNumber)
+}
+
+// toSubsequentRecord returns a string for use with each subsequent record sent to a writer.
+func toSubsequentRecord(op *contract.TimelockCallScheduled) string {
+	return fmt.Sprintf("CallSchedule pending ID: %x\tBlock Number: %v\n", op.Id, op.Raw.BlockNumber)
 }
