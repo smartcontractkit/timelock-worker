@@ -263,7 +263,7 @@ func (tw *Worker) Listen(ctx context.Context) error {
 	defer sub.Unsubscribe()
 	defer ctx.Done()
 
-	tw.dumpOperationStore()
+	tw.dumpOperationStore(time.Now)
 
 	return nil
 }
