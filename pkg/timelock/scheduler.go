@@ -10,8 +10,17 @@ import (
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/rs/zerolog"
 	"github.com/smartcontractkit/timelock-worker/pkg/timelock/contract"
+)
+
+var dumpOperationStoreErrorCount = promauto.NewCounter(
+	prometheus.CounterOpts{
+		Name: "timelock_dump_operation_store_error_total",
+		Help: "The total number of errors when dumping the operation store",
+	},
 )
 
 type operationKey [32]byte
@@ -133,28 +142,44 @@ func (tw *Worker) isSchedulerBusy() bool {
 // dumpOperationStore dumps to the logger and to the log file the current scheduled unexecuted operations.
 // maps in go don't guarantee order, so that's why we have to find the earliest block.
 func (tw *Worker) dumpOperationStore(now func() time.Time) {
-	if len(tw.store) > 0 {
-		f, err := os.Create(logPath + logFile)
-		if err != nil {
-			tw.logger.Fatal().Msgf("unable to create %s: %s", logPath+logFile, err.Error())
-		}
-		defer f.Close()
-
-		tw.logger.Info().Msgf("generating logs with pending operations in %s", logPath+logFile)
-
-		// Get the earliest block from all the operations stored by sorting them.
-		blocks := make([]int, 0)
-		for _, op := range tw.store {
-			blocks = append(blocks, int(op[0].Raw.BlockNumber))
-		}
-		sort.Ints(blocks)
-
-		w := bufio.NewWriter(f)
-
-		writeOperationStore(w, tw.logger, tw.store, blocks[0], now)
-
-		w.Flush()
+	// Do nothing if there are no operations in the store.
+	if len(tw.store) <= 0 {
+		return
 	}
+
+	var (
+		err    error
+		f      *os.File
+		blocks = make([]int, 0)
+	)
+
+	// Get the earliest block from all the operations stored by sorting them.
+	for _, op := range tw.store {
+		blocks = append(blocks, int(op[0].Raw.BlockNumber))
+	}
+	sort.Ints(blocks)
+
+	defer func() {
+		if err != nil {
+			dumpOperationStoreErrorCount.Inc()
+			tw.logger.Fatal().Msgf("[earliest block: %d] error dumping operation store to disk: %s", blocks[0], err.Error())
+		}
+	}()
+
+	f, err = os.Create(logPath + logFile)
+	if err != nil {
+		tw.logger.Error().Msgf("unable to create %s: %s", logPath+logFile, err.Error())
+		return
+	}
+	defer f.Close()
+
+	tw.logger.Info().Msgf("generating logs with pending operations in %s", logPath+logFile)
+
+	w := bufio.NewWriter(f)
+
+	err = writeOperationStore(w, tw.logger, tw.store, blocks[0], now)
+
+	w.Flush()
 }
 
 // writeOperationStore writes the operations to the writer.
@@ -164,7 +189,7 @@ func writeOperationStore(
 	store map[operationKey][]*contract.TimelockCallScheduled,
 	earliest int,
 	now func() time.Time,
-) {
+) error {
 	var (
 		err error
 		op  *contract.TimelockCallScheduled
@@ -173,7 +198,8 @@ func writeOperationStore(
 
 	_, err = fmt.Fprintf(w, "Process stopped at %v\n", now().In(time.UTC))
 	if err != nil {
-		logger.Fatal().Msgf("error writing to buffer: %s", err.Error())
+		logger.Error().Msgf("error writing to buffer: %s", err.Error())
+		return err
 	}
 
 	for _, record := range store {
@@ -192,9 +218,11 @@ func writeOperationStore(
 
 		_, err = fmt.Fprint(w, msg)
 		if err != nil {
-			logger.Fatal().Msgf("error writing to buffer: %s", err.Error())
+			logger.Error().Msgf("error writing to buffer: %s", err.Error())
+			return err
 		}
 	}
+	return nil
 }
 
 // toEarliestRecord returns a string with the earliest record.
