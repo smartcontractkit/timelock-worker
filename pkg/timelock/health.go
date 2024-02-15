@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"sync/atomic"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/rs/zerolog"
 )
 
 // HealthStatus represents the health status enum.
@@ -60,21 +63,35 @@ func respond(status HealthStatus, w http.ResponseWriter) {
 }
 
 // Starts a http server, serving the healthz endpoint.
-func StartHTTPHealthServer() {
+func StartHTTPHealthServer(l *zerolog.Logger) {
+	startServer(l, "health", ":8080", func(mux *http.ServeMux) {
+		mux.HandleFunc("/healthz", liveHandler)
+		mux.HandleFunc("/ready", readyHandler)
+	})
+}
+
+func StartMetricsServer(l *zerolog.Logger) {
+	startServer(l, "metrics", ":2021", func(mux *http.ServeMux) {
+		mux.Handle("/metrics", promhttp.Handler())
+	})
+}
+
+func startServer(l *zerolog.Logger, name, addr string, opts ...func(*http.ServeMux)) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", liveHandler)
-	mux.HandleFunc("/ready", readyHandler)
+	for _, opt := range opts {
+		opt(mux)
+	}
 
 	server := &http.Server{
-		Addr:         ":8080",
+		Addr:         addr,
 		Handler:      mux,
 		ReadTimeout:  5 * time.Second,  // Set your desired read timeout
 		WriteTimeout: 10 * time.Second, // Set your desired write timeout
 		IdleTimeout:  15 * time.Second, // Set your desired idle timeout
 	}
 
-	fmt.Println("Server listening on :8080")
+	l.Info().Msgf("%s server listening on %s", name, addr)
 	if err := server.ListenAndServe(); err != nil {
-		fmt.Println(err)
+		l.Error().Msgf("%s server stopped: %s", name, err)
 	}
 }

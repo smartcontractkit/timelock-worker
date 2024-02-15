@@ -18,6 +18,6 @@ timelock-worker.log
 *.test
 
 # env file
-.env
+*.env
 
 

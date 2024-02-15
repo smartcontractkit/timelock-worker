@@ -48,6 +48,7 @@ func startHandler(cmd *cobra.Command, _ []string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go startHTTPHealthServer()
+	go startMetricsServer()
 	startTimelock(ctx, cmd)
 }
 
@@ -95,5 +96,9 @@ func startTimelock(ctx context.Context, cmd *cobra.Command) {
 }
 
 func startHTTPHealthServer() {
-	timelock.StartHTTPHealthServer()
+	timelock.StartHTTPHealthServer(logs)
+}
+
+func startMetricsServer() {
+	timelock.StartMetricsServer(logs)
 }
