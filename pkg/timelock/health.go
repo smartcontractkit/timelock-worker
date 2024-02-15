@@ -64,38 +64,34 @@ func respond(status HealthStatus, w http.ResponseWriter) {
 
 // Starts a http server, serving the healthz endpoint.
 func StartHTTPHealthServer(l *zerolog.Logger) {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", liveHandler)
-	mux.HandleFunc("/ready", readyHandler)
-
-	server := &http.Server{
-		Addr:         ":8080",
-		Handler:      mux,
-		ReadTimeout:  5 * time.Second,  // Set your desired read timeout
-		WriteTimeout: 10 * time.Second, // Set your desired write timeout
-		IdleTimeout:  15 * time.Second, // Set your desired idle timeout
-	}
-
-	l.Info().Msg("health server listening on :8080")
-	if err := server.ListenAndServe(); err != nil {
-		l.Error().Msgf("health server stopped: %s", err)
-	}
+	startServer(l, "health", ":8080", func(mux *http.ServeMux) {
+		mux.HandleFunc("/healthz", liveHandler)
+		mux.HandleFunc("/ready", readyHandler)
+	})
 }
 
 func StartMetricsServer(l *zerolog.Logger) {
+	startServer(l, "metrics", ":2021", func(mux *http.ServeMux) {
+		mux.Handle("/metrics", promhttp.Handler())
+	})
+}
+
+func startServer(l *zerolog.Logger, name, addr string, opts ...func(*http.ServeMux)) {
 	mux := http.NewServeMux()
-	mux.Handle("/metrics", promhttp.Handler())
+	for _, opt := range opts {
+		opt(mux)
+	}
 
 	server := &http.Server{
-		Addr:         ":2120",
+		Addr:         addr,
 		Handler:      mux,
 		ReadTimeout:  5 * time.Second,  // Set your desired read timeout
 		WriteTimeout: 10 * time.Second, // Set your desired write timeout
 		IdleTimeout:  15 * time.Second, // Set your desired idle timeout
 	}
 
-	l.Info().Msg("metrics server listening on :2120")
+	l.Info().Msgf("%s server listening on %s", name, addr)
 	if err := server.ListenAndServe(); err != nil {
-		l.Error().Msgf("metrics server stopped: %s", err)
+		l.Error().Msgf("%s server stopped: %s", name, err)
 	}
 }
