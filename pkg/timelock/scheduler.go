@@ -90,12 +90,13 @@ func (tw *Worker) runScheduler(ctx context.Context) {
 
 // updateSchedulerDelay updates the internal ticker delay, so it can be reconfigured while running.
 func (tw *Worker) updateSchedulerDelay(t time.Duration) {
-	if t > 0 {
-		tw.ticker.Reset(t)
-		tw.logger.Debug().Msgf("internal min delay changed to %v", t.String())
-	} else {
+	if t <= 0 {
 		tw.logger.Debug().Msgf("internal min delay not changed, invalid duration: %v", t.String())
+		return
 	}
+
+	tw.ticker.Reset(t)
+	tw.logger.Debug().Msgf("internal min delay changed to %v", t.String())
 }
 
 // addToScheduler adds a new CallSchedule operation safely to the store.
@@ -133,28 +134,31 @@ func (tw *Worker) isSchedulerBusy() bool {
 // dumpOperationStore dumps to the logger and to the log file the current scheduled unexecuted operations.
 // maps in go don't guarantee order, so that's why we have to find the earliest block.
 func (tw *Worker) dumpOperationStore(now func() time.Time) {
-	if len(tw.store) > 0 {
-		f, err := os.Create(logPath + logFile)
-		if err != nil {
-			tw.logger.Fatal().Msgf("unable to create %s: %s", logPath+logFile, err.Error())
-		}
-		defer f.Close()
-
-		tw.logger.Info().Msgf("generating logs with pending operations in %s", logPath+logFile)
-
-		// Get the earliest block from all the operations stored by sorting them.
-		blocks := make([]int, 0)
-		for _, op := range tw.store {
-			blocks = append(blocks, int(op[0].Raw.BlockNumber))
-		}
-		sort.Ints(blocks)
-
-		w := bufio.NewWriter(f)
-
-		writeOperationStore(w, tw.logger, tw.store, blocks[0], now)
-
-		w.Flush()
+	if len(tw.store) <= 0 {
+		tw.logger.Info().Msgf("no operations to dump")
+		return
 	}
+
+	f, err := os.Create(logPath + logFile)
+	if err != nil {
+		tw.logger.Fatal().Msgf("unable to create %s: %s", logPath+logFile, err.Error())
+	}
+	defer f.Close()
+
+	tw.logger.Info().Msgf("generating logs with pending operations in %s", logPath+logFile)
+
+	// Get the earliest block from all the operations stored by sorting them.
+	blocks := make([]int, 0)
+	for _, op := range tw.store {
+		blocks = append(blocks, int(op[0].Raw.BlockNumber))
+	}
+	sort.Ints(blocks)
+
+	w := bufio.NewWriter(f)
+
+	writeOperationStore(w, tw.logger, tw.store, blocks[0], now)
+
+	w.Flush()
 }
 
 // writeOperationStore writes the operations to the writer.

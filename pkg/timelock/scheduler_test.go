@@ -47,6 +47,10 @@ func Test_newScheduler(t *testing.T) {
 func TestWorker_updateSchedulerDelay(t *testing.T) {
 	testWorker, _ := NewTimelockWorker(testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey, testFromBlock, int64(testPollPeriod), testLogger)
 
+	if testWorker == nil {
+		t.Skipf("testWorker is nil, are the env variables in const_test.go set?")
+	}
+
 	// Should never fail
 	testWorker.updateSchedulerDelay(1 * time.Second)
 	testWorker.updateSchedulerDelay(-1 * time.Second)
@@ -55,6 +59,10 @@ func TestWorker_updateSchedulerDelay(t *testing.T) {
 
 func TestWorker_isSchedulerBusy(t *testing.T) {
 	testWorker, _ := NewTimelockWorker(testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey, testFromBlock, int64(testPollPeriod), testLogger)
+
+	if testWorker == nil {
+		t.Skipf("testWorker is nil, are the env variables in const_test.go set?")
+	}
 
 	isBusy := testWorker.isSchedulerBusy()
 	assert.Equal(t, false, isBusy, "scheduler should be busy by default")
@@ -71,6 +79,10 @@ func TestWorker_isSchedulerBusy(t *testing.T) {
 func TestWorker_setSchedulerBusy(t *testing.T) {
 	testWorker, _ := NewTimelockWorker(testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey, testFromBlock, int64(testPollPeriod), testLogger)
 
+	if testWorker == nil {
+		t.Skipf("testWorker is nil, are the env variables in const_test.go set?")
+	}
+
 	testWorker.setSchedulerBusy()
 	isBusy := testWorker.isSchedulerBusy()
 	assert.Equal(t, true, isBusy, "scheduler should be busy after setSchedulerBusy()")
@@ -78,6 +90,10 @@ func TestWorker_setSchedulerBusy(t *testing.T) {
 
 func TestWorker_setSchedulerFree(t *testing.T) {
 	testWorker, _ := NewTimelockWorker(testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey, testFromBlock, int64(testPollPeriod), testLogger)
+
+	if testWorker == nil {
+		t.Skipf("testWorker is nil, are the env variables in const_test.go set?")
+	}
 
 	testWorker.setSchedulerFree()
 	isBusy := testWorker.isSchedulerBusy()
@@ -131,6 +147,7 @@ func Test_dumpOperationStore(t *testing.T) {
 	nowFunc := func() time.Time {
 		return date
 	}
+
 	wantPrefix := fmt.Sprintf("Process stopped at %v\n", nowFunc().In(time.UTC))
 
 	// Write the store to the file.

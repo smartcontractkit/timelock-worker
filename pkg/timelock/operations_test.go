@@ -12,6 +12,11 @@ import (
 
 func Test_isOperation(t *testing.T) {
 	testWorker, _ := NewTimelockWorker(testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey, testFromBlock, int64(testPollPeriod), testLogger)
+
+	if testWorker == nil {
+		t.Skipf("testWorker is nil, are the env variables in const_test.go set?")
+	}
+
 	var ctx context.Context
 
 	type args struct {
@@ -54,6 +59,11 @@ func Test_isOperation(t *testing.T) {
 
 func Test_isReady(t *testing.T) {
 	testWorker, _ := NewTimelockWorker(testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey, testFromBlock, int64(testPollPeriod), testLogger)
+
+	if testWorker == nil {
+		t.Skipf("testWorker is nil, are the env variables in const_test.go set?")
+	}
+
 	var ctx context.Context
 
 	type args struct {
@@ -96,6 +106,11 @@ func Test_isReady(t *testing.T) {
 
 func Test_isDone(t *testing.T) {
 	testWorker, _ := NewTimelockWorker(testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey, testFromBlock, int64(testPollPeriod), testLogger)
+
+	if testWorker == nil {
+		t.Skipf("testWorker is nil, are the env variables in const_test.go set?")
+	}
+
 	var ctx context.Context
 
 	type args struct {
@@ -138,6 +153,11 @@ func Test_isDone(t *testing.T) {
 
 func Test_isPending(t *testing.T) {
 	testWorker, _ := NewTimelockWorker(testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey, testFromBlock, int64(testPollPeriod), testLogger)
+
+	if testWorker == nil {
+		t.Skipf("testWorker is nil, are the env variables in const_test.go set?")
+	}
+
 	var ctx context.Context
 
 	type args struct {

@@ -15,6 +15,10 @@ import (
 func TestNewTimelockWorker(t *testing.T) {
 	testWorker, _ := NewTimelockWorker(testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey, testFromBlock, int64(testPollPeriod), testLogger)
 
+	if testWorker == nil {
+		t.Skipf("testWorker is nil, are the env variables in const_test.go set?")
+	}
+
 	type args struct {
 		nodeURL          string
 		timelockAddress  string
@@ -178,6 +182,11 @@ func Test_handleOSSignal(t *testing.T) {
 
 func TestWorker_startLog(t *testing.T) {
 	testWorker, _ := NewTimelockWorker(testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey, testFromBlock, int64(testPollPeriod), testLogger)
+
+	if testWorker == nil {
+		t.Skipf("testWorker is nil, are the env variables in const_test.go set?")
+	}
+
 	tests := []struct {
 		name string
 	}{
