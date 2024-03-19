@@ -17,21 +17,20 @@ import (
 // - The operation is ready to be executed
 // Otherwise the operation will throw an info log and wait for a future tick.
 func (tw *Worker) execute(ctx context.Context, op []*contract.TimelockCallScheduled) {
-	if isReady(ctx, tw.contract, op[0].Id) {
-		tw.logger.Debug().Msgf("execute operation %x", op[0].Id)
-
-		tx, err := executeCallSchedule(ctx, &tw.executeContract.TimelockTransactor, op, tw.privateKey)
-		if err != nil || tx == nil {
-			tw.logger.Error().Msgf("execute operation %x error: %s", op[0].Id, err.Error())
-		} else {
-			tw.logger.Info().Msgf("execute operation %x success: %s", op[0].Id, tx.Hash())
-
-			if _, err = bind.WaitMined(ctx, tw.ethClient, tx); err != nil {
-				tw.logger.Error().Msgf("execute operation %x error: %s", op[0].Id, err.Error())
-			}
-		}
-	} else {
+	if !isReady(ctx, tw.contract, op[0].Id) {
 		tw.logger.Info().Msgf("skipping operation %x: not ready", op[0].Id)
+	}
+
+	tw.logger.Debug().Msgf("execute operation %x", op[0].Id)
+	tx, err := executeCallSchedule(ctx, &tw.executeContract.TimelockTransactor, op, tw.privateKey)
+	if err != nil || tx == nil {
+		tw.logger.Error().Msgf("execute operation %x error: %s", op[0].Id, err.Error())
+	} else {
+		tw.logger.Info().Msgf("execute operation %x success: %s", op[0].Id, tx.Hash())
+
+		if _, err = bind.WaitMined(ctx, tw.ethClient, tx); err != nil {
+			tw.logger.Error().Msgf("execute operation %x error: %s", op[0].Id, err.Error())
+		}
 	}
 }
 

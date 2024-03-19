@@ -45,7 +45,7 @@ func Test_newScheduler(t *testing.T) {
 }
 
 func TestWorker_updateSchedulerDelay(t *testing.T) {
-	testWorker, _ := NewTimelockWorker(testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey, testFromBlock, int64(testPollPeriod), testLogger)
+	testWorker := newTestTimelockWorker(t, testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey, testFromBlock, int64(testPollPeriod), testLogger)
 
 	// Should never fail
 	testWorker.updateSchedulerDelay(1 * time.Second)
@@ -54,7 +54,7 @@ func TestWorker_updateSchedulerDelay(t *testing.T) {
 }
 
 func TestWorker_isSchedulerBusy(t *testing.T) {
-	testWorker, _ := NewTimelockWorker(testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey, testFromBlock, int64(testPollPeriod), testLogger)
+	testWorker := newTestTimelockWorker(t, testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey, testFromBlock, int64(testPollPeriod), testLogger)
 
 	isBusy := testWorker.isSchedulerBusy()
 	assert.Equal(t, false, isBusy, "scheduler should be busy by default")
@@ -69,7 +69,7 @@ func TestWorker_isSchedulerBusy(t *testing.T) {
 }
 
 func TestWorker_setSchedulerBusy(t *testing.T) {
-	testWorker, _ := NewTimelockWorker(testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey, testFromBlock, int64(testPollPeriod), testLogger)
+	testWorker := newTestTimelockWorker(t, testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey, testFromBlock, int64(testPollPeriod), testLogger)
 
 	testWorker.setSchedulerBusy()
 	isBusy := testWorker.isSchedulerBusy()
@@ -77,7 +77,7 @@ func TestWorker_setSchedulerBusy(t *testing.T) {
 }
 
 func TestWorker_setSchedulerFree(t *testing.T) {
-	testWorker, _ := NewTimelockWorker(testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey, testFromBlock, int64(testPollPeriod), testLogger)
+	testWorker := newTestTimelockWorker(t, testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey, testFromBlock, int64(testPollPeriod), testLogger)
 
 	testWorker.setSchedulerFree()
 	isBusy := testWorker.isSchedulerBusy()
@@ -131,6 +131,7 @@ func Test_dumpOperationStore(t *testing.T) {
 	nowFunc := func() time.Time {
 		return date
 	}
+
 	wantPrefix := fmt.Sprintf("Process stopped at %v\n", nowFunc().In(time.UTC))
 
 	// Write the store to the file.

@@ -241,14 +241,14 @@ func (tw *Worker) Listen(ctx context.Context) error {
 				// signal the channel sub.Err() to close it, leading to false nil errors.
 				if err != nil {
 					tw.logger.Info().Msgf("subscription: %s", err.Error())
-					loop = false
 					SetReadyStatus(HealthStatusError)
+					loop = false
 				}
 
 			case signal := <-stopCh:
 				tw.logger.Info().Msgf("received OS signal %s", signal)
-				loop = false
 				SetReadyStatus(HealthStatusError)
+				loop = false
 			}
 		}
 		wg.Done()
@@ -286,8 +286,8 @@ func (tw *Worker) startLog() {
 	if err != nil {
 		tw.logger.Info().Msgf("\tEOA address: unable to determine")
 	}
-	tw.logger.Info().Msgf("\tEOA address: %v", wallet)
 
+	tw.logger.Info().Msgf("\tEOA address: %v", wallet)
 	tw.logger.Info().Msgf("\tStarting from block: %v", tw.fromBlock)
 	tw.logger.Info().Msgf("\tPoll Period: %v", time.Duration(tw.pollPeriod*int64(time.Second)).String())
 }

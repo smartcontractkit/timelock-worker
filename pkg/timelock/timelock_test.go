@@ -12,8 +12,24 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func newTestTimelockWorker(t *testing.T, nodeURL, timelockAddress, callProxyAddress, privateKey string, fromBlock *big.Int, pollPeriod int64, logger *zerolog.Logger) *Worker {
+	assert.NotEmpty(t, nodeURL, "nodeURL is empty. Are environment variabes in const_test.go set?")
+	assert.NotEmpty(t, timelockAddress, "nodeURL is empty. Are environment variabes in const_test.go set?")
+	assert.NotEmpty(t, callProxyAddress, "callProxyAddress is empty. Are environment variabes in const_test.go set?")
+	assert.NotEmpty(t, privateKey, "privateKey is empty. Are environment variabes in const_test.go set?")
+	assert.NotNil(t, fromBlock, "fromBlock is nil. Are environment variabes in const_test.go set?")
+	assert.NotEmpty(t, pollPeriod, "pollPeriod is empty. Are environment variabes in const_test.go set?")
+	assert.NotNil(t, logger, "logger is nil. Are environment variabes in const_test.go set?")
+
+	tw, err := NewTimelockWorker(nodeURL, timelockAddress, callProxyAddress, privateKey, fromBlock, pollPeriod, logger)
+	assert.NoError(t, err)
+	assert.NotNil(t, tw)
+
+	return tw
+}
+
 func TestNewTimelockWorker(t *testing.T) {
-	testWorker, _ := NewTimelockWorker(testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey, testFromBlock, int64(testPollPeriod), testLogger)
+	testWorker := newTestTimelockWorker(t, testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey, testFromBlock, int64(testPollPeriod), testLogger)
 
 	type args struct {
 		nodeURL          string
@@ -177,7 +193,8 @@ func Test_handleOSSignal(t *testing.T) {
 }
 
 func TestWorker_startLog(t *testing.T) {
-	testWorker, _ := NewTimelockWorker(testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey, testFromBlock, int64(testPollPeriod), testLogger)
+	testWorker := newTestTimelockWorker(t, testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey, testFromBlock, int64(testPollPeriod), testLogger)
+
 	tests := []struct {
 		name string
 	}{

@@ -50,9 +50,12 @@ func readyHandler(w http.ResponseWriter, r *http.Request) {
 
 func respond(status HealthStatus, w http.ResponseWriter) {
 	var err error
+
 	if status == HealthStatusOK {
 		_, err = w.Write([]byte("OK"))
-	} else {
+	}
+
+	if status == HealthStatusError {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, err = w.Write([]byte("Error"))
 	}
