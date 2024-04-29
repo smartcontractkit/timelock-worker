@@ -35,7 +35,7 @@ type Worker struct {
 	ethClient       *ethclient.Client
 	contract        *contract.Timelock
 	executeContract *contract.Timelock
-	ABI             *abi.ABI
+	abi             *abi.ABI
 	address         []common.Address
 	fromBlock       *big.Int
 	pollPeriod      int64
@@ -113,7 +113,7 @@ func NewTimelockWorker(nodeURL, timelockAddress, callProxyAddress, privateKey st
 		ethClient:       ethClient,
 		contract:        timelockContract,
 		executeContract: executeContract,
-		ABI:             timelockABI,
+		abi:             timelockABI,
 		address:         []common.Address{common.HexToAddress(timelockAddress)},
 		fromBlock:       fromBlock,
 		pollPeriod:      pollPeriod,
@@ -132,63 +132,81 @@ func (tw *Worker) Listen(ctx context.Context) error {
 		return err
 	}
 
-	stopCh := make(chan string)
-	logCh := make(chan types.Log)
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
-
-	tw.updateSchedulerDelay(time.Duration(tw.pollPeriod) * time.Second)
-	go tw.runScheduler(ctx)
 	tw.startLog()
 
-	// Shutdown gracefully based on OS interrupts.
-	go func() {
-		for {
-			handleOSSignal(<-sigCh, stopCh)
-		}
-	}()
+	// Handle OS signals to properly stop/kill the process.
+	stopCh := make(chan string)
+	go handleOSSignal(stopCh)
 
-	// FilterQuery to be feed to the subscription and FilterLogs.
-	query := ethereum.FilterQuery{
+	// Update timelock-worker default scheduler delay.
+	tw.updateSchedulerDelay(time.Duration(tw.pollPeriod) * time.Second)
+
+	// Run the scheduler to add/del operations in a thread-safe way.
+	go tw.runScheduler(ctx)
+
+	// Initialize the subscription.
+	logCh := make(chan types.Log)
+	if err := tw.subscribeAndProcessLogs(ctx, logCh, stopCh); err != nil {
+		tw.logger.Error().Err(err).Msg("failed to subscribe and process logs.")
+		return err
+	}
+
+	defer close(stopCh)
+	defer close(logCh)
+	defer ctx.Done()
+	defer tw.dumpOperationStore(time.Now)
+
+	return nil
+}
+
+func (tw *Worker) setupFilterQuery() ethereum.FilterQuery {
+	return ethereum.FilterQuery{
 		Addresses: tw.address,
 		FromBlock: tw.fromBlock,
 	}
+}
 
-	tw.logger.Info().Msgf("Starting subscription")
-	// Create the new subscription with the predefined query.
+// subscribeAndProcessLogs creates a subscription and processes logs based on a filter query.
+func (tw *Worker) subscribeAndProcessLogs(ctx context.Context, logCh chan types.Log, stopCh chan string) error {
+	query := tw.setupFilterQuery()
+
+	// SubscribeFilterLogs creates an asynchronous subscription to the events.
+	// It receives all the new events.
+	tw.logger.Info().Msg("starting subscription")
 	sub, err := tw.ethClient.SubscribeFilterLogs(ctx, query, logCh)
 	if err != nil {
 		return err
 	}
+	defer sub.Unsubscribe()
 
-	// Read events by FilterLogs. This method calls eth_getLogs under the hood.
+	// FilterLogs starts filtering the logs at fromBlock, gathering the historical data.
+	// This is needed to guarantee that all the events are gathered, even in scenarios where the worker crashes.
 	filter, err := tw.ethClient.FilterLogs(ctx, query)
 	if err != nil {
 		return err
 	}
 
+	// Process incoming historical logs in a separate goroutine.
+	wg.Add(1)
 	go func() {
-		for _, l := range filter {
-			logCh <- l
+		for _, log := range filter {
+			logCh <- log
 		}
+		wg.Done()
 	}()
-
-	// Setting readyStatus here because we want to make sure subscription is up.
-	tw.logger.Info().Msgf("Initial subscription complete")
-	SetReadyStatus(HealthStatusOK)
 
 	// This is the goroutine watching over the subscription.
 	// We want wg.Done() to cancel the whole execution, so don't add more than 1 to wg.
 	// Also, when receiving an event that creates an error, skip the event and
 	// continue processing the rest, as an external operator can cancel the faulty event.
-	loop := true
 	wg.Add(1)
 	go func() {
-		for loop {
+	MainLoop:
+		for {
 			select {
 			case log := <-logCh:
 				// Decode the log into an event using the ABI exposed in Timelock.go
-				event, err := tw.ABI.EventByID(log.Topics[0])
+				event, err := tw.abi.EventByID(log.Topics[0])
 				if err != nil {
 					continue
 				}
@@ -240,42 +258,41 @@ func (tw *Worker) Listen(ctx context.Context) error {
 				// Check if the error is not nil, because sub.Unsubscribe will
 				// signal the channel sub.Err() to close it, leading to false nil errors.
 				if err != nil {
-					tw.logger.Info().Msgf("subscription: %s", err.Error())
+					tw.logger.Warn().Msgf("subscription error: %s", err.Error())
 					SetReadyStatus(HealthStatusError)
-					loop = false
+					sub.Unsubscribe()
+
+					success := false
+					for try := range maxSubRetries {
+						tw.logger.Warn().Msgf("trying to re-create subscription: %v/%v retry.", try+1, maxSubRetries)
+						sub, err = tw.ethClient.SubscribeFilterLogs(ctx, query, logCh)
+						if err == nil {
+							tw.logger.Info().Msg("subscription successfully recreated.")
+							SetReadyStatus(HealthStatusOK)
+							break
+						}
+
+						time.Sleep(time.Second * time.Duration(try))
+					}
+
+					if !success {
+						tw.logger.Error().Msg("failed to recreate subscription after retries: shutting down timelock-worker.")
+						break MainLoop
+					}
 				}
 
 			case signal := <-stopCh:
 				tw.logger.Info().Msgf("received OS signal %s", signal)
 				SetReadyStatus(HealthStatusError)
-				loop = false
+				break MainLoop
 			}
 		}
 		wg.Done()
 	}()
+
 	wg.Wait()
 
-	// Close in this specific order to avoid runtime panics,
-	// or memory leaks.
-	defer close(sigCh)
-	defer close(stopCh)
-	defer close(logCh)
-	defer sub.Unsubscribe()
-	defer ctx.Done()
-
-	tw.dumpOperationStore(time.Now)
-
 	return nil
-}
-
-// handleOSSignal handles SIGINT and SIGTERM OS signals, and signals the stopCh.
-func handleOSSignal(signal os.Signal, stopCh chan string) {
-	switch signal {
-	case syscall.SIGINT:
-		stopCh <- syscall.SIGINT.String()
-	case syscall.SIGTERM:
-		stopCh <- syscall.SIGTERM.String()
-	}
 }
 
 func (tw *Worker) startLog() {
@@ -284,10 +301,29 @@ func (tw *Worker) startLog() {
 
 	wallet, err := privateKeyToAddress(tw.privateKey)
 	if err != nil {
-		tw.logger.Info().Msgf("\tEOA address: unable to determine")
+		tw.logger.Error().Msgf("\tEOA address: unable to determine")
+	} else {
+		tw.logger.Info().Msgf("\tEOA address: %v", wallet)
 	}
 
-	tw.logger.Info().Msgf("\tEOA address: %v", wallet)
 	tw.logger.Info().Msgf("\tStarting from block: %v", tw.fromBlock)
 	tw.logger.Info().Msgf("\tPoll Period: %v", time.Duration(tw.pollPeriod*int64(time.Second)).String())
+}
+
+// handleOSSignal handles SIGINT and SIGTERM OS signals, and signals the stopCh.
+func handleOSSignal(stopCh chan string) {
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	defer close(sigCh)
+
+	// Block and wait until a system signal happens.
+	signal := <-sigCh
+
+	// In the future SIGHUP can be used to reload configuration.
+	switch signal {
+	case syscall.SIGINT:
+		stopCh <- syscall.SIGINT.String()
+	case syscall.SIGTERM:
+		stopCh <- syscall.SIGTERM.String()
+	}
 }

@@ -4,6 +4,7 @@ import "time"
 
 const (
 	defaultSchedulerDelay time.Duration = 15 * time.Minute
+	maxSubRetries         int           = 5
 
 	eventCallScheduled  string = "CallScheduled"
 	eventCallExecuted   string = "CallExecuted"
