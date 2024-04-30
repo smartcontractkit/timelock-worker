@@ -49,43 +49,51 @@ func newScheduler(tick time.Duration) *scheduler {
 // the store, which could cause race conditions like adding/deleting
 // while the operation is being executed.
 func (tw *Worker) runScheduler(ctx context.Context) {
-	for {
-		select {
-		case <-tw.ticker.C:
-			if len(tw.store) <= 0 {
-				tw.logger.Debug().Msgf("new scheduler tick: no operations in store")
-				continue
-			}
-
-			if !tw.isSchedulerBusy() {
-				tw.logger.Debug().Msgf("new scheduler tick: operations in store")
-				tw.setSchedulerBusy()
-				for _, op := range tw.store {
-					tw.execute(ctx, op)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-tw.ticker.C:
+				if len(tw.store) <= 0 {
+					tw.logger.Debug().Msgf("new scheduler tick: no operations in store")
+					continue
 				}
-				tw.setSchedulerFree()
-			} else {
-				tw.logger.Debug().Msgf("new scheduler tick: scheduler is busy, skipping until next tick")
-			}
 
-		case op := <-tw.add:
-			tw.mu.Lock()
-			if len(tw.store[op.Id]) <= int(op.Index.Int64()) {
-				tw.store[op.Id] = append(tw.store[op.Id], op)
-			}
-			tw.store[op.Id][op.Index.Int64()] = op
-			tw.mu.Unlock()
-			tw.logger.Debug().Msgf("scheduled operation: %x", op.Id)
+				if !tw.isSchedulerBusy() {
+					tw.logger.Debug().Msgf("new scheduler tick: operations in store")
+					tw.setSchedulerBusy()
+					for _, op := range tw.store {
+						tw.execute(ctx, op)
+					}
+					tw.setSchedulerFree()
+				} else {
+					tw.logger.Debug().Msgf("new scheduler tick: scheduler is busy, skipping until next tick")
+				}
 
-		case op := <-tw.del:
-			if _, ok := tw.store[op]; ok {
+			case op := <-tw.add:
 				tw.mu.Lock()
-				delete(tw.store, op)
+				if len(tw.store[op.Id]) <= int(op.Index.Int64()) {
+					tw.store[op.Id] = append(tw.store[op.Id], op)
+				}
+				tw.store[op.Id][op.Index.Int64()] = op
 				tw.mu.Unlock()
-				tw.logger.Debug().Msgf("de-scheduled operation: %x", op)
+				tw.logger.Debug().Msgf("scheduled operation: %x", op.Id)
+
+			case op := <-tw.del:
+				if _, ok := tw.store[op]; ok {
+					tw.mu.Lock()
+					delete(tw.store, op)
+					tw.mu.Unlock()
+					tw.logger.Debug().Msgf("de-scheduled operation: %x", op)
+				}
+
+			case <-ctx.Done():
+				tw.logger.Debug().Msgf("shutting down scheduler")
+				return
 			}
 		}
-	}
+	}()
 }
 
 // updateSchedulerDelay updates the internal ticker delay, so it can be reconfigured while running.
