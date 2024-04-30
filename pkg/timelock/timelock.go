@@ -160,6 +160,7 @@ func (tw *Worker) Listen(ctx context.Context) error {
 	return nil
 }
 
+// setupFilterQuery returns an ethereum.FilterQuery initialized to watch the Timelock contract.
 func (tw *Worker) setupFilterQuery() ethereum.FilterQuery {
 	return ethereum.FilterQuery{
 		Addresses: tw.address,
@@ -167,6 +168,7 @@ func (tw *Worker) setupFilterQuery() ethereum.FilterQuery {
 	}
 }
 
+// subscribeNewLogs subscribes to a Timelock contract and emit logs through the channel it returns.
 func (tw *Worker) subscribeNewLogs(ctx context.Context) (<-chan types.Log, error) {
 	query := tw.setupFilterQuery()
 	logCh := make(chan types.Log)
@@ -182,6 +184,7 @@ func (tw *Worker) subscribeNewLogs(ctx context.Context) (<-chan types.Log, error
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		defer close(logCh)
 		defer sub.Unsubscribe()
 		for {
 			select {
@@ -224,6 +227,8 @@ func (tw *Worker) subscribeNewLogs(ctx context.Context) (<-chan types.Log, error
 	return logCh, nil
 }
 
+// retrieveHistoricalLogs returns a types.Log channel and retrieves all the historical events of a given contract.
+// Once all the logs have been sent into the channel the function returns and the channel is closed.
 func (tw *Worker) retrieveHistoricalLogs(ctx context.Context) (<-chan types.Log, error) {
 	query := tw.setupFilterQuery()
 	logCh := make(chan types.Log)
@@ -255,6 +260,8 @@ func (tw *Worker) retrieveHistoricalLogs(ctx context.Context) (<-chan types.Log,
 	return logCh, nil
 }
 
+// processLogs is implemented as a fan-in for all the logs channels, merging all the data and handling logs sequentially.
+// This function is thread safe.
 func (tw *Worker) processLogs(ctx context.Context, oldLog, newLog <-chan types.Log) {
 	// This is the goroutine watching over the subscribed and historical logs.
 	wg.Add(1)
@@ -281,6 +288,9 @@ func (tw *Worker) processLogs(ctx context.Context, oldLog, newLog <-chan types.L
 	}()
 }
 
+// handleLog handles the logic of parsing every event, its type and actions associated to each one.
+// CallScheduled events have to be added to the scheduler.
+// CallExecuted and CallCanceled signals an event that has to be removed from the scheduler.
 func (tw *Worker) handleLog(ctx context.Context, log types.Log) error {
 	// Ignore logs with no topics.
 	if len(log.Topics) == 0 {
@@ -339,6 +349,7 @@ func (tw *Worker) handleLog(ctx context.Context, log types.Log) error {
 	return nil
 }
 
+// startLog prints the timelock-worker configuration.
 func (tw *Worker) startLog() {
 	tw.logger.Info().Msgf("timelock-worker started")
 	tw.logger.Info().Msgf("\tTimelock contract address: %v", tw.address[0])
