@@ -269,6 +269,7 @@ func (tw *Worker) subscribeAndProcessLogs(ctx context.Context, logCh chan types.
 						if err == nil {
 							tw.logger.Info().Msg("subscription successfully recreated.")
 							SetReadyStatus(HealthStatusOK)
+							success = true
 							break
 						}
 
