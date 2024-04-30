@@ -36,7 +36,7 @@ jobs:
         with:
           registries: ${{ secrets.AWS_ACCOUNT_NUMBER }}
 
-      - uses: smartcontractkit/tool-versions-to-env-action@v1.0.8
+      - uses: smartcontractkit/tool-versions-to-env-action@aabd5efbaf28005284e846c5cf3a02f2cba2f4c2 # v1.0.8
         id: tool-versions
 
       - name: Setup go ${{ steps.tool-versions.outputs.golang_version }}
