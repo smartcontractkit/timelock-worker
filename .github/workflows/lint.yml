@@ -22,7 +22,7 @@ jobs:
           go-version: ${{ steps.tool-versions.outputs.golang_version }}
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v5
+        uses: golangci/golangci-lint-action@9d1e0624a798bb64f6c3cea93db47765312263dc # v5.1.0
         with:
           version: v${{ steps.tool-versions.outputs.golangci-lint_version }}
           args: -v --timeout=5m
