@@ -151,13 +151,17 @@ func (tw *Worker) Listen(ctx context.Context) error {
 	// Main goroutine; processes old and new logs and handles cancellation.
 	processingDone := tw.processLogs(ctxwc, historyCh, logCh)
 
-	// Block until all goroutines are done.
+	// Block until the context is done and then cleanup.
+	<-ctxwc.Done()
+	tw.logger.Info().Msg("shutting down timelock-worker")
+	tw.logger.Info().Msg("dumping operation store")
+	tw.dumpOperationStore(time.Now)
+
+	// Wait for all goroutines to finish.
 	<-historyDone
 	<-newDone
 	<-processingDone
 	<-schedulingDone
-
-	tw.dumpOperationStore(time.Now)
 
 	return nil
 }
