@@ -35,6 +35,11 @@ test:
 	@echo "\n\t$(C_GREEN)# Run test and generate new coverage.out$(C_END)"
 	go test -short -coverprofile=coverage.out -covermode=atomic -race ./...
 
+.PHONY: coverage
+coverage:
+	@echo "\n\t$(C_GREEN)# View coverage.out report$(C_END)"
+	@go tool cover -html="coverage.out"
+
 .PHONY: build
 build: clean
 	@echo "\n\t$(C_GREEN)# Build binary $(BINARY)$(C_END)"
