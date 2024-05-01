@@ -21,9 +21,8 @@ import (
 	"github.com/smartcontractkit/timelock-worker/pkg/timelock/contract"
 )
 
-var (
-	tWorker *Worker
-)
+// tWorker is exposed at package level because signTx in operations.go needs it.
+var tWorker *Worker
 
 // Worker represents a worker instance.
 // address is an array of addresses as expected by ethereum.FilterQuery,
