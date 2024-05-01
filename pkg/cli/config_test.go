@@ -13,15 +13,17 @@ import (
 
 func TestNewConfigRaw(t *testing.T) {
 	var newConfig = &cli.Config{
-		NodeURL:         "foo:test",
-		TimelockAddress: "0x12345",
-		PrivateKey:      "0123456789",
-		FromBlock:       0,
+		NodeURL:          "foo:test",
+		TimelockAddress:  "0x12345",
+		CallProxyAddress: "0x12345",
+		PrivateKey:       "0123456789",
+		FromBlock:        0,
 	}
 
 	if assert.NotNil(t, newConfig) {
 		assert.Equal(t, "foo:test", newConfig.NodeURL)
 		assert.Equal(t, "0x12345", newConfig.TimelockAddress)
+		assert.Equal(t, "0x12345", newConfig.CallProxyAddress)
 		assert.Equal(t, "0123456789", newConfig.PrivateKey)
 		assert.Equal(t, int64(0), newConfig.FromBlock)
 	}
@@ -37,14 +39,16 @@ func TestNewTimelockCLIFromEnvVar(t *testing.T) {
 
 	t.Setenv("NODE_URL", "wss://goerli/test")
 	t.Setenv("TIMELOCK_ADDRESS", "0x12345")
+	t.Setenv("CALL_PROXY_ADDRESS", "0x12345")
 	t.Setenv("PRIVATE_KEY", "1234567890")
 	t.Setenv("FROM_BLOCK", "1234567890")
 
 	var wantedConfig = cli.Config{
-		NodeURL:         "wss://goerli/test",
-		TimelockAddress: "0x12345",
-		PrivateKey:      "1234567890",
-		FromBlock:       1234567890,
+		NodeURL:          "wss://goerli/test",
+		TimelockAddress:  "0x12345",
+		CallProxyAddress: "0x12345",
+		PrivateKey:       "1234567890",
+		FromBlock:        1234567890,
 	}
 
 	tests := []struct {
