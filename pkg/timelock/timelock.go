@@ -125,7 +125,8 @@ func NewTimelockWorker(nodeURL, timelockAddress, callProxyAddress, privateKey st
 // Listen is the main function of a Timelock Worker.
 // It handles the retrieval of old and new events, contexts and cancellations.
 func (tw *Worker) Listen(ctx context.Context) error {
-	ctxwc := handleOSSignal(ctx)
+	ctxwc, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
 
 	// Log timelock-worker configuration.
 	tw.startLog()
@@ -369,14 +370,4 @@ func (tw *Worker) startLog() {
 	tw.logger.Info().Msgf("\tEOA address: %v", wallet)
 	tw.logger.Info().Msgf("\tStarting from block: %v", tw.fromBlock)
 	tw.logger.Info().Msgf("\tPoll Period: %v", time.Duration(tw.pollPeriod*int64(time.Second)).String())
-}
-
-// handleOSSignal handles SIGINT and SIGTERM OS signals, and signals the stopCh.
-func handleOSSignal(ctx context.Context) context.Context {
-	ctxwc, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		defer cancel()
-		<-ctxwc.Done()
-	}()
-	return ctxwc
 }
