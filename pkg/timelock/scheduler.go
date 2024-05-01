@@ -48,10 +48,12 @@ func newScheduler(tick time.Duration) *scheduler {
 // call them this way so no process is allowd to add/delete from
 // the store, which could cause race conditions like adding/deleting
 // while the operation is being executed.
-func (tw *Worker) runScheduler(ctx context.Context) {
-	wg.Add(1)
+func (tw *Worker) runScheduler(ctx context.Context) <-chan struct{} {
+	done := make(chan struct{})
+
 	go func() {
-		defer wg.Done()
+		defer close(done)
+
 		for {
 			select {
 			case <-tw.ticker.C:
@@ -94,6 +96,8 @@ func (tw *Worker) runScheduler(ctx context.Context) {
 			}
 		}
 	}()
+
+	return done
 }
 
 // updateSchedulerDelay updates the internal ticker delay, so it can be reconfigured while running.
