@@ -7,7 +7,6 @@ import (
 	"math/big"
 	"net/url"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
@@ -23,7 +22,6 @@ import (
 )
 
 var (
-	wg      sync.WaitGroup
 	tWorker *Worker
 )
 
@@ -127,35 +125,43 @@ func NewTimelockWorker(nodeURL, timelockAddress, callProxyAddress, privateKey st
 // Listen is the main function of a Timelock Worker.
 // It handles the retrieval of old and new events, contexts and cancellations.
 func (tw *Worker) Listen(ctx context.Context) error {
-	ctxwc := handleOSSignal(ctx)
+	ctxwc, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
 
 	// Log timelock-worker configuration.
 	tw.startLog()
 
 	// Run the scheduler to add/del operations in a thread-safe way.
-	tw.runScheduler(ctxwc)
+	schedulingDone := tw.runScheduler(ctxwc)
 
 	// Retrieve historical logs.
-	historyCh, err := tw.retrieveHistoricalLogs(ctxwc)
+	historyDone, historyCh, err := tw.retrieveHistoricalLogs(ctxwc)
 	if err != nil {
 		tw.logger.Error().Err(err).Msg("failed to retrieve historical logs.")
 		return err
 	}
 
 	// Create a subscription and retrieve new logs asynchronously.
-	logCh, err := tw.subscribeNewLogs(ctxwc)
+	newDone, logCh, err := tw.subscribeNewLogs(ctxwc)
 	if err != nil {
 		tw.logger.Error().Err(err).Msg("failed to subscribe and process new logs.")
 		return err
 	}
 
 	// Main goroutine; processes old and new logs and handles cancellation.
-	tw.processLogs(ctxwc, historyCh, logCh)
+	processingDone := tw.processLogs(ctxwc, historyCh, logCh)
 
-	// Block until all goroutines are done.
-	wg.Wait()
-
+	// Block until the context is done and then cleanup.
+	<-ctxwc.Done()
+	tw.logger.Info().Msg("shutting down timelock-worker")
+	tw.logger.Info().Msg("dumping operation store")
 	tw.dumpOperationStore(time.Now)
+
+	// Wait for all goroutines to finish.
+	<-historyDone
+	<-newDone
+	<-processingDone
+	<-schedulingDone
 
 	return nil
 }
@@ -169,23 +175,24 @@ func (tw *Worker) setupFilterQuery() ethereum.FilterQuery {
 }
 
 // subscribeNewLogs subscribes to a Timelock contract and emit logs through the channel it returns.
-func (tw *Worker) subscribeNewLogs(ctx context.Context) (<-chan types.Log, error) {
+func (tw *Worker) subscribeNewLogs(ctx context.Context) (<-chan struct{}, <-chan types.Log, error) {
 	query := tw.setupFilterQuery()
 	logCh := make(chan types.Log)
+	done := make(chan struct{})
 
 	// SubscribeFilterLogs creates an asynchronous subscription to the events.
 	// It receives all the new events.
 	sub, err := tw.ethClient.SubscribeFilterLogs(ctx, query, logCh)
 	if err != nil {
 		tw.logger.Error().Msgf("unexpected error while creating subscription: %s", err.Error())
-		return nil, err
+		return nil, nil, err
 	}
 
-	wg.Add(1)
 	go func() {
-		defer wg.Done()
+		defer close(done)
 		defer close(logCh)
 		defer sub.Unsubscribe()
+
 		for {
 			select {
 			case err := <-sub.Err():
@@ -224,27 +231,28 @@ func (tw *Worker) subscribeNewLogs(ctx context.Context) (<-chan types.Log, error
 		}
 	}()
 
-	return logCh, nil
+	return done, logCh, nil
 }
 
 // retrieveHistoricalLogs returns a types.Log channel and retrieves all the historical events of a given contract.
 // Once all the logs have been sent into the channel the function returns and the channel is closed.
-func (tw *Worker) retrieveHistoricalLogs(ctx context.Context) (<-chan types.Log, error) {
+func (tw *Worker) retrieveHistoricalLogs(ctx context.Context) (<-chan struct{}, <-chan types.Log, error) {
 	query := tw.setupFilterQuery()
 	logCh := make(chan types.Log)
+	done := make(chan struct{})
 
 	// FilterLogs starts filtering the logs at fromBlock, gathering the historical data.
 	// This is needed to guarantee that all the events are gathered, even in scenarios where the worker crashes.
 	filter, err := tw.ethClient.FilterLogs(ctx, query)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Process incoming historical logs in a separate goroutine.
-	wg.Add(1)
 	go func() {
-		defer wg.Done()
+		defer close(done)
 		defer close(logCh)
+
 		for _, log := range filter {
 			select {
 			case logCh <- log:
@@ -257,16 +265,18 @@ func (tw *Worker) retrieveHistoricalLogs(ctx context.Context) (<-chan types.Log,
 		tw.logger.Debug().Msg("retrieved correctly all historical logs")
 	}()
 
-	return logCh, nil
+	return done, logCh, nil
 }
 
 // processLogs is implemented as a fan-in for all the logs channels, merging all the data and handling logs sequentially.
 // This function is thread safe.
-func (tw *Worker) processLogs(ctx context.Context, oldLog, newLog <-chan types.Log) {
+func (tw *Worker) processLogs(ctx context.Context, oldLog, newLog <-chan types.Log) <-chan struct{} {
+	done := make(chan struct{})
+
 	// This is the goroutine watching over the subscribed and historical logs.
-	wg.Add(1)
 	go func() {
-		defer wg.Done()
+		defer close(done)
+
 		for {
 			select {
 			case log := <-newLog:
@@ -286,6 +296,8 @@ func (tw *Worker) processLogs(ctx context.Context, oldLog, newLog <-chan types.L
 			}
 		}
 	}()
+
+	return done
 }
 
 // handleLog handles the logic of parsing every event, its type and actions associated to each one.
@@ -362,14 +374,4 @@ func (tw *Worker) startLog() {
 	tw.logger.Info().Msgf("\tEOA address: %v", wallet)
 	tw.logger.Info().Msgf("\tStarting from block: %v", tw.fromBlock)
 	tw.logger.Info().Msgf("\tPoll Period: %v", time.Duration(tw.pollPeriod*int64(time.Second)).String())
-}
-
-// handleOSSignal handles SIGINT and SIGTERM OS signals, and signals the stopCh.
-func handleOSSignal(ctx context.Context) context.Context {
-	ctxwc, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		defer cancel()
-		<-ctxwc.Done()
-	}()
-	return ctxwc
 }
