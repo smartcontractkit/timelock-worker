@@ -21,9 +21,6 @@ import (
 	"github.com/smartcontractkit/timelock-worker/pkg/timelock/contract"
 )
 
-// tWorker is exposed at package level because signTx in operations.go needs it.
-var tWorker *Worker
-
 // Worker represents a worker instance.
 // address is an array of addresses as expected by ethereum.FilterQuery,
 // but it's enforced only to one address in the logic.
@@ -105,7 +102,7 @@ func NewTimelockWorker(nodeURL, timelockAddress, callProxyAddress, privateKey st
 		return nil, err
 	}
 
-	tWorker = &Worker{
+	tWorker := &Worker{
 		ethClient:       ethClient,
 		contract:        timelockContract,
 		executeContract: executeContract,

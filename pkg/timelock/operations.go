@@ -22,7 +22,7 @@ func (tw *Worker) execute(ctx context.Context, op []*contract.TimelockCallSchedu
 	}
 
 	tw.logger.Debug().Msgf("execute operation %x", op[0].Id)
-	tx, err := executeCallSchedule(ctx, &tw.executeContract.TimelockTransactor, op, tw.privateKey)
+	tx, err := tw.executeCallSchedule(ctx, &tw.executeContract.TimelockTransactor, op, tw.privateKey)
 	if err != nil || tx == nil {
 		tw.logger.Error().Msgf("execute operation %x error: %s", op[0].Id, err.Error())
 	} else {
@@ -35,7 +35,7 @@ func (tw *Worker) execute(ctx context.Context, op []*contract.TimelockCallSchedu
 }
 
 // executeCallScheduleOperation is the handler to execute a CallScheduled operation.
-func executeCallSchedule(ctx context.Context, c *contract.TimelockTransactor, cs []*contract.TimelockCallScheduled, privateKey *ecdsa.PrivateKey) (*types.Transaction, error) {
+func (tw *Worker) executeCallSchedule(ctx context.Context, c *contract.TimelockTransactor, cs []*contract.TimelockCallScheduled, privateKey *ecdsa.PrivateKey) (*types.Transaction, error) {
 	fromAddress, err := privateKeyToAddress(privateKey)
 	if err != nil {
 		return nil, err
@@ -56,7 +56,7 @@ func executeCallSchedule(ctx context.Context, c *contract.TimelockTransactor, cs
 	tx, err := c.ExecuteBatch(
 		&bind.TransactOpts{
 			From:    fromAddress,
-			Signer:  signTx,
+			Signer:  tw.signTx,
 			Context: ctx},
 		calls,
 		cs[0].Predecessor,
@@ -112,17 +112,13 @@ func isPending(ctx context.Context, c *contract.Timelock, id [32]byte) bool {
 }
 
 // signTx is a function that implements the type SignerFn, so can be passed as a Signer method.
-func signTx(address common.Address, tx *types.Transaction) (*types.Transaction, error) {
-	if tWorker == nil {
-		return nil, fmt.Errorf("timelockWorker can't be instantiated")
-	}
-
-	chainID, err := tWorker.ethClient.NetworkID(context.Background())
+func (tw *Worker) signTx(address common.Address, tx *types.Transaction) (*types.Transaction, error) {
+	chainID, err := tw.ethClient.NetworkID(context.Background())
 	if err != nil {
 		return nil, err
 	}
 
-	signedTx, err := types.SignTx(tx, types.LatestSignerForChainID(chainID), tWorker.privateKey)
+	signedTx, err := types.SignTx(tx, types.LatestSignerForChainID(chainID), tw.privateKey)
 	if err != nil {
 		return nil, err
 	}
