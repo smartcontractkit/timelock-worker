@@ -161,6 +161,12 @@ func (tw *Worker) dumpOperationStore(now func() time.Time) {
 	w.Flush()
 }
 
+type storeRecord struct {
+	Block int
+	OpKey operationKey
+	Ops   []*contract.TimelockCallScheduled
+}
+
 // writeOperationStore writes the operations to the writer.
 func writeOperationStore(
 	w io.Writer,
@@ -180,8 +186,24 @@ func writeOperationStore(
 		logger.Fatal().Msgf("error writing to buffer: %s", err.Error())
 	}
 
-	for _, record := range store {
-		op = record[0]
+	// order the store records by block number
+	storeRecords := make([]storeRecord, 0)
+	for opID, ops := range store {
+		if len(ops) <= 0 {
+			continue
+		}
+		storeRecords = append(storeRecords, storeRecord{
+			Block: int(ops[0].Raw.BlockNumber),
+			OpKey: opID,
+			Ops:   ops,
+		})
+	}
+	sort.Slice(storeRecords, func(i, j int) bool {
+		return storeRecords[i].Block < storeRecords[j].Block
+	})
+
+	for _, record := range storeRecords {
+		op = record.Ops[0]
 
 		if int(op.Raw.BlockNumber) == earliest {
 			logLine := fmt.Sprintf("earliest unexecuted CallSchedule. Use this block number when "+
