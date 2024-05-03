@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"math/big"
 	"net/url"
-	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
@@ -20,12 +18,9 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/rs/zerolog"
-	"github.com/smartcontractkit/timelock-worker/pkg/timelock/contract"
-)
 
-var (
-	wg      sync.WaitGroup
-	tWorker *Worker
+	"github.com/smartcontractkit/timelock-worker/pkg/isclosed"
+	"github.com/smartcontractkit/timelock-worker/pkg/timelock/contract"
 )
 
 // Worker represents a worker instance.
@@ -35,7 +30,7 @@ type Worker struct {
 	ethClient       *ethclient.Client
 	contract        *contract.Timelock
 	executeContract *contract.Timelock
-	ABI             *abi.ABI
+	abi             *abi.ABI
 	address         []common.Address
 	fromBlock       *big.Int
 	pollPeriod      int64
@@ -70,7 +65,7 @@ func NewTimelockWorker(nodeURL, timelockAddress, callProxyAddress, privateKey st
 	}
 
 	if fromBlock.Int64() < big.NewInt(0).Int64() {
-		return nil, fmt.Errorf("from block can't be a negative number (minimum value 0): got %d", pollPeriod)
+		return nil, fmt.Errorf("from block can't be a negative number (minimum value 0): got %d", fromBlock.Int64())
 	}
 
 	if _, err := crypto.HexToECDSA(privateKey); err != nil {
@@ -109,182 +104,297 @@ func NewTimelockWorker(nodeURL, timelockAddress, callProxyAddress, privateKey st
 		return nil, err
 	}
 
-	tWorker = &Worker{
+	tWorker := &Worker{
 		ethClient:       ethClient,
 		contract:        timelockContract,
 		executeContract: executeContract,
-		ABI:             timelockABI,
+		abi:             timelockABI,
 		address:         []common.Address{common.HexToAddress(timelockAddress)},
 		fromBlock:       fromBlock,
 		pollPeriod:      pollPeriod,
 		logger:          logger,
 		privateKey:      privateKeyECDSA,
-		scheduler:       *newScheduler(defaultSchedulerDelay),
+		scheduler:       *newScheduler(time.Duration(pollPeriod) * time.Second),
 	}
 
 	return tWorker, nil
 }
 
-// Listen is the main function of a Timelock Worker, it subscribes to events using the ethClient
-// and targeting the contract address set.
-func (tw *Worker) Listen(ctx context.Context) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
+// Listen is the main function of a Timelock Worker.
+// It handles the retrieval of old and new events, contexts and cancellations.
+func (tw *Worker) Listen() error {
+	ctxwc, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 
-	stopCh := make(chan string)
-	logCh := make(chan types.Log)
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
-
-	tw.updateSchedulerDelay(time.Duration(tw.pollPeriod) * time.Second)
-	go tw.runScheduler(ctx)
+	// Log timelock-worker configuration.
 	tw.startLog()
 
-	// Shutdown gracefully based on OS interrupts.
-	go func() {
-		for {
-			handleOSSignal(<-sigCh, stopCh)
-		}
-	}()
+	// Run the scheduler to add/del operations in a thread-safe way.
+	schedulingDone := tw.runScheduler(ctxwc)
 
-	// FilterQuery to be feed to the subscription and FilterLogs.
-	query := ethereum.FilterQuery{
-		Addresses: tw.address,
-		FromBlock: tw.fromBlock,
-	}
-
-	tw.logger.Info().Msgf("Starting subscription")
-	// Create the new subscription with the predefined query.
-	sub, err := tw.ethClient.SubscribeFilterLogs(ctx, query, logCh)
+	// Retrieve historical logs.
+	historyDone, historyCh, err := tw.retrieveHistoricalLogs(ctxwc)
 	if err != nil {
+		tw.logger.Error().Err(err).Msg("failed to retrieve historical logs.")
 		return err
 	}
 
-	// Read events by FilterLogs. This method calls eth_getLogs under the hood.
-	filter, err := tw.ethClient.FilterLogs(ctx, query)
+	// Create a subscription and retrieve new logs asynchronously.
+	newDone, logCh, err := tw.subscribeNewLogs(ctxwc)
 	if err != nil {
+		tw.logger.Error().Err(err).Msg("failed to subscribe and process new logs.")
 		return err
 	}
 
-	go func() {
-		for _, l := range filter {
-			logCh <- l
-		}
-	}()
+	// Main goroutine; processes old and new logs and handles cancellation.
+	processingDone := tw.processLogs(ctxwc, historyCh, logCh)
 
-	// Setting readyStatus here because we want to make sure subscription is up.
-	tw.logger.Info().Msgf("Initial subscription complete")
-	SetReadyStatus(HealthStatusOK)
+	// Block until the context is done or until processing is completed.
+	// This cover the two cases where timelock-worker can exit:
+	// - A signal to stop timelock-worker was received.
+	// - The subscription errored out and wasn't recovered.
+	select {
+	case <-ctxwc.Done():
+	case <-processingDone:
+		cancel()
+	}
 
-	// This is the goroutine watching over the subscription.
-	// We want wg.Done() to cancel the whole execution, so don't add more than 1 to wg.
-	// Also, when receiving an event that creates an error, skip the event and
-	// continue processing the rest, as an external operator can cancel the faulty event.
-	loop := true
-	wg.Add(1)
-	go func() {
-		for loop {
-			select {
-			case log := <-logCh:
-				// Decode the log into an event using the ABI exposed in Timelock.go
-				event, err := tw.ABI.EventByID(log.Topics[0])
-				if err != nil {
-					continue
-				}
-
-				if event == nil {
-					continue
-				}
-
-				switch event.Name {
-				// A CallScheduled event should be added to an scheduler only if it's not already done
-				// and it's a valid Operation.
-				case eventCallScheduled:
-					cs, err := tw.contract.ParseCallScheduled(log)
-					if err != nil {
-						continue
-					}
-
-					if !isDone(ctx, tw.contract, cs.Id) && isOperation(ctx, tw.contract, cs.Id) {
-						tw.logger.Info().Hex(fieldTXHash, cs.Raw.TxHash[:]).Uint64(fieldBlockNumber, cs.Raw.BlockNumber).Msgf("%s received", eventCallScheduled)
-						tw.addToScheduler(cs)
-					}
-
-					// A CallExecuted which is in Done status should delete the task in the scheduler store.
-				case eventCallExecuted:
-					cs, err := tw.contract.ParseCallExecuted(log)
-					if err != nil {
-						continue
-					}
-
-					if isDone(ctx, tw.contract, cs.Id) {
-						tw.logger.Info().Hex(fieldTXHash, cs.Raw.TxHash[:]).Uint64(fieldBlockNumber, cs.Raw.BlockNumber).Msgf("%s received, skipping operation", eventCallExecuted)
-						tw.delFromScheduler(cs.Id)
-					}
-
-					// A Cancelled which is in Done status should delete the task in the scheduler store.
-				case eventCancelled:
-					cs, err := tw.contract.ParseCancelled(log)
-					if err != nil {
-						continue
-					}
-
-					if isDone(ctx, tw.contract, cs.Id) {
-						tw.logger.Info().Hex(fieldTXHash, cs.Raw.TxHash[:]).Uint64(fieldBlockNumber, cs.Raw.BlockNumber).Msgf("%s received, cancelling operation", eventCancelled)
-						tw.delFromScheduler(cs.Id)
-					}
-				}
-
-			case err := <-sub.Err():
-				// Check if the error is not nil, because sub.Unsubscribe will
-				// signal the channel sub.Err() to close it, leading to false nil errors.
-				if err != nil {
-					tw.logger.Info().Msgf("subscription: %s", err.Error())
-					SetReadyStatus(HealthStatusError)
-					loop = false
-				}
-
-			case signal := <-stopCh:
-				tw.logger.Info().Msgf("received OS signal %s", signal)
-				SetReadyStatus(HealthStatusError)
-				loop = false
-			}
-		}
-		wg.Done()
-	}()
-	wg.Wait()
-
-	// Close in this specific order to avoid runtime panics,
-	// or memory leaks.
-	defer close(sigCh)
-	defer close(stopCh)
-	defer close(logCh)
-	defer sub.Unsubscribe()
-	defer ctx.Done()
-
+	tw.logger.Info().Msg("shutting down timelock-worker")
+	tw.logger.Info().Msg("dumping operation store")
 	tw.dumpOperationStore(time.Now)
+
+	// Wait for all goroutines to finish.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+
+	<-isclosed.All(shutdownCtx, schedulingDone, historyDone, newDone, processingDone)
 
 	return nil
 }
 
-// handleOSSignal handles SIGINT and SIGTERM OS signals, and signals the stopCh.
-func handleOSSignal(signal os.Signal, stopCh chan string) {
-	switch signal {
-	case syscall.SIGINT:
-		stopCh <- syscall.SIGINT.String()
-	case syscall.SIGTERM:
-		stopCh <- syscall.SIGTERM.String()
+// setupFilterQuery returns an ethereum.FilterQuery initialized to watch the Timelock contract.
+func (tw *Worker) setupFilterQuery() ethereum.FilterQuery {
+	return ethereum.FilterQuery{
+		Addresses: tw.address,
+		FromBlock: tw.fromBlock,
 	}
 }
 
+// subscribeNewLogs subscribes to a Timelock contract and emit logs through the channel it returns.
+func (tw *Worker) subscribeNewLogs(ctx context.Context) (<-chan struct{}, <-chan types.Log, error) {
+	query := tw.setupFilterQuery()
+	logCh := make(chan types.Log)
+	done := make(chan struct{})
+
+	// SubscribeFilterLogs creates an asynchronous subscription to the events.
+	// It receives all the new events.
+	sub, err := tw.ethClient.SubscribeFilterLogs(ctx, query, logCh)
+	if err != nil {
+		tw.logger.Error().Msgf("unexpected error while creating subscription: %s", err.Error())
+		return nil, nil, err
+	}
+
+	go func() {
+		defer close(done)
+		defer close(logCh)
+		defer sub.Unsubscribe()
+
+		for {
+			select {
+			case err := <-sub.Err():
+				// Check if the error is not nil, because sub.Unsubscribe will
+				// signal the channel sub.Err() to close it, leading to false nil errors.
+				if err != nil {
+					tw.logger.Warn().Msgf("subscription error: %s", err.Error())
+					SetReadyStatus(HealthStatusError)
+					sub.Unsubscribe()
+
+					success := false
+					for try := range maxSubRetries {
+						tw.logger.Warn().Msgf("trying to re-create subscription: %v/%v retry.", try+1, maxSubRetries)
+						sub, err = tw.ethClient.SubscribeFilterLogs(ctx, query, logCh)
+						if err == nil {
+							tw.logger.Info().Msg("subscription successfully recreated.")
+							SetReadyStatus(HealthStatusOK)
+							success = true
+							break
+						}
+
+						time.Sleep(time.Second * time.Duration(try))
+					}
+
+					if !success {
+						tw.logger.Error().Msg("failed to recreate subscription after retries: shutting down timelock-worker.")
+						return
+					}
+				}
+
+			case <-ctx.Done():
+				tw.logger.Debug().Msgf("shutting down subscription")
+				SetReadyStatus(HealthStatusError)
+				return
+			}
+		}
+	}()
+
+	return done, logCh, nil
+}
+
+// retrieveHistoricalLogs returns a types.Log channel and retrieves all the historical events of a given contract.
+// Once all the logs have been sent into the channel the function returns and the channel is closed.
+func (tw *Worker) retrieveHistoricalLogs(ctx context.Context) (<-chan struct{}, <-chan types.Log, error) {
+	query := tw.setupFilterQuery()
+	logCh := make(chan types.Log)
+	done := make(chan struct{})
+
+	// FilterLogs starts filtering the logs at fromBlock, gathering the historical data.
+	// This is needed to guarantee that all the events are gathered, even in scenarios where the worker crashes.
+	filter, err := tw.ethClient.FilterLogs(ctx, query)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Process incoming historical logs in a separate goroutine.
+	go func() {
+		defer close(done)
+		defer close(logCh)
+
+		for _, log := range filter {
+			select {
+			case logCh <- log:
+				tw.logger.Debug().Msgf("processing historical log: %+v\n", log)
+			case <-ctx.Done():
+				tw.logger.Debug().Msg("stopped while processing historical logs: incomplete retrieval.")
+				return
+			}
+		}
+		tw.logger.Debug().Msg("retrieved correctly all historical logs")
+	}()
+
+	return done, logCh, nil
+}
+
+// processLogs is implemented as a fan-in for all the logs channels, merging all the data and handling logs sequentially.
+// This function is thread safe.
+func (tw *Worker) processLogs(ctx context.Context, oldLog, newLog <-chan types.Log) <-chan struct{} {
+	var (
+		done, newDone, oldDone = make(chan struct{}), make(chan struct{}), make(chan struct{})
+		ctxwc, cancel          = context.WithCancel(ctx)
+	)
+
+	// Cancel the context and shutdown the processing routine if no more logs are available.
+	go func() {
+		defer cancel()
+		<-isclosed.All(ctxwc, oldDone, newDone)
+	}()
+
+	// This is the goroutine watching over the subscribed and historical logs.
+	go func() {
+		defer close(done)
+
+		for {
+			select {
+			case log, open := <-newLog:
+				if !open {
+					close(newDone)
+					newLog = nil
+					continue
+				}
+
+				if err := tw.handleLog(ctxwc, log); err != nil {
+					tw.logger.Error().Msgf("error processing new log: %v\n", log)
+				}
+
+			case log, open := <-oldLog:
+				if !open {
+					close(oldDone)
+					oldLog = nil
+					continue
+				}
+
+				if err := tw.handleLog(ctxwc, log); err != nil {
+					tw.logger.Error().Msgf("error processing historical log: %v\n", log)
+				}
+
+			case <-ctxwc.Done():
+				tw.logger.Info().Msgf("cancelled processing logs")
+				SetReadyStatus(HealthStatusError)
+				return
+			}
+		}
+	}()
+
+	return done
+}
+
+// handleLog handles the logic of parsing every event, its type and actions associated to each one.
+// CallScheduled events have to be added to the scheduler.
+// CallExecuted and CallCanceled signals an event that has to be removed from the scheduler.
+func (tw *Worker) handleLog(ctx context.Context, log types.Log) error {
+	// Ignore logs with no topics.
+	if len(log.Topics) == 0 {
+		return nil
+	}
+
+	// Decode the log into an event using the ABI exposed in Timelock.go
+	event, err := tw.abi.EventByID(log.Topics[0])
+	if err != nil {
+		return err
+	}
+
+	if event == nil {
+		return fmt.Errorf("event is null")
+	}
+
+	switch event.Name {
+	// A CallScheduled event should be added to an scheduler only if it's not already done
+	// and it's a valid Operation.
+	case eventCallScheduled:
+		cs, err := tw.contract.ParseCallScheduled(log)
+		if err != nil {
+			return err
+		}
+
+		if !isDone(ctx, tw.contract, cs.Id) && isOperation(ctx, tw.contract, cs.Id) {
+			tw.logger.Info().Hex(fieldTXHash, cs.Raw.TxHash[:]).Uint64(fieldBlockNumber, cs.Raw.BlockNumber).Msgf("%s received", eventCallScheduled)
+			tw.addToScheduler(cs)
+		}
+
+		// A CallExecuted which is in Done status should delete the task in the scheduler store.
+	case eventCallExecuted:
+		cs, err := tw.contract.ParseCallExecuted(log)
+		if err != nil {
+			return err
+		}
+
+		if isDone(ctx, tw.contract, cs.Id) {
+			tw.logger.Info().Hex(fieldTXHash, cs.Raw.TxHash[:]).Uint64(fieldBlockNumber, cs.Raw.BlockNumber).Msgf("%s received, skipping operation", eventCallExecuted)
+			tw.delFromScheduler(cs.Id)
+		}
+
+		// A Cancelled which is in Done status should delete the task in the scheduler store.
+	case eventCancelled:
+		cs, err := tw.contract.ParseCancelled(log)
+		if err != nil {
+			return err
+		}
+
+		if isDone(ctx, tw.contract, cs.Id) {
+			tw.logger.Info().Hex(fieldTXHash, cs.Raw.TxHash[:]).Uint64(fieldBlockNumber, cs.Raw.BlockNumber).Msgf("%s received, cancelling operation", eventCancelled)
+			tw.delFromScheduler(cs.Id)
+		}
+	}
+
+	return nil
+}
+
+// startLog prints the timelock-worker configuration.
 func (tw *Worker) startLog() {
 	tw.logger.Info().Msgf("timelock-worker started")
 	tw.logger.Info().Msgf("\tTimelock contract address: %v", tw.address[0])
 
 	wallet, err := privateKeyToAddress(tw.privateKey)
 	if err != nil {
-		tw.logger.Info().Msgf("\tEOA address: unable to determine")
+		tw.logger.Fatal().Msgf("\tEOA address: unable to determine")
 	}
 
 	tw.logger.Info().Msgf("\tEOA address: %v", wallet)

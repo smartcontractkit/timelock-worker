@@ -2,10 +2,7 @@ package timelock
 
 import (
 	"math/big"
-	"os"
 	"reflect"
-	"sync"
-	"syscall"
 	"testing"
 
 	"github.com/rs/zerolog"
@@ -171,25 +168,6 @@ func TestNewTimelockWorker(t *testing.T) {
 			}
 		})
 	}
-}
-
-func Test_handleOSSignal(t *testing.T) {
-	stopCh := make(chan string)
-	sigCh := make(chan os.Signal, 1)
-	var testWg sync.WaitGroup
-
-	testWg.Add(1)
-	go func() {
-		for {
-			handleOSSignal(<-sigCh, stopCh)
-		}
-	}()
-
-	sigCh <- syscall.SIGTERM
-	assert.Equal(t, <-stopCh, "terminated", "send SIGTERM, receive terminated")
-
-	sigCh <- syscall.SIGINT
-	assert.Equal(t, <-stopCh, "interrupt", "send SIGINT, receive interrupt")
 }
 
 func TestWorker_startLog(t *testing.T) {

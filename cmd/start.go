@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"math/big"
 
 	"github.com/smartcontractkit/timelock-worker/pkg/cli"
@@ -44,15 +43,12 @@ func startCommand() *cobra.Command {
 }
 
 func startHandler(cmd *cobra.Command, _ []string) {
-	// Use this ctx as the base context.
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	go startHTTPHealthServer()
 	go startMetricsServer()
-	startTimelock(ctx, cmd)
+	startTimelock(cmd)
 }
 
-func startTimelock(ctx context.Context, cmd *cobra.Command) {
+func startTimelock(cmd *cobra.Command) {
 	nodeURL, err := cmd.Flags().GetString("node-url")
 	if err != nil {
 		logs.Fatal().Msgf("value of node-url not set: %s", err.Error())
@@ -88,7 +84,7 @@ func startTimelock(ctx context.Context, cmd *cobra.Command) {
 		logs.Fatal().Msgf("error creating the timelock-worker: %s", err.Error())
 	}
 
-	if err := tWorker.Listen(ctx); err != nil {
+	if err := tWorker.Listen(); err != nil {
 		logs.Fatal().Msgf("error while starting timelock-worker: %s", err.Error())
 	}
 
