@@ -18,6 +18,8 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/rs/zerolog"
+
+	"github.com/smartcontractkit/timelock-worker/pkg/isclosed"
 	"github.com/smartcontractkit/timelock-worker/pkg/timelock/contract"
 )
 
@@ -273,7 +275,16 @@ func (tw *Worker) retrieveHistoricalLogs(ctx context.Context) (<-chan struct{}, 
 // processLogs is implemented as a fan-in for all the logs channels, merging all the data and handling logs sequentially.
 // This function is thread safe.
 func (tw *Worker) processLogs(ctx context.Context, oldLog, newLog <-chan types.Log) <-chan struct{} {
-	done := make(chan struct{})
+	var (
+		done, newDone, oldDone = make(chan struct{}), make(chan struct{}), make(chan struct{})
+		ctxwc, cancel          = context.WithCancel(ctx)
+	)
+
+	// Cancel the context and shutdown the processing routine if no more logs are available.
+	go func() {
+		defer cancel()
+		<-isclosed.All(ctxwc, oldDone, newDone)
+	}()
 
 	// This is the goroutine watching over the subscribed and historical logs.
 	go func() {
@@ -281,18 +292,30 @@ func (tw *Worker) processLogs(ctx context.Context, oldLog, newLog <-chan types.L
 
 		for {
 			select {
-			case log := <-newLog:
-				if err := tw.handleLog(ctx, log); err != nil {
+			case log, open := <-newLog:
+				if !open {
+					close(newDone)
+					newLog = nil
+					continue
+				}
+
+				if err := tw.handleLog(ctxwc, log); err != nil {
 					tw.logger.Error().Msgf("error processing new log: %v\n", log)
 				}
 
-			case log := <-oldLog:
-				if err := tw.handleLog(ctx, log); err != nil {
+			case log, open := <-oldLog:
+				if !open {
+					close(oldDone)
+					oldLog = nil
+					continue
+				}
+
+				if err := tw.handleLog(ctxwc, log); err != nil {
 					tw.logger.Error().Msgf("error processing historical log: %v\n", log)
 				}
 
-			case <-ctx.Done():
-				tw.logger.Info().Msgf("received OS signal")
+			case <-ctxwc.Done():
+				tw.logger.Info().Msgf("cancelled processing logs")
 				SetReadyStatus(HealthStatusError)
 				return
 			}
