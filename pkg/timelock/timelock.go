@@ -124,7 +124,6 @@ func NewTimelockWorker(nodeURL, timelockAddress, callProxyAddress, privateKey st
 // It handles the retrieval of old and new events, contexts and cancellations.
 func (tw *Worker) Listen() error {
 	ctxwc, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
 
 	// Log timelock-worker configuration.
 	tw.startLog()
@@ -156,6 +155,7 @@ func (tw *Worker) Listen() error {
 	select {
 	case <-ctxwc.Done():
 	case <-processingDone:
+		cancel()
 	}
 
 	tw.logger.Info().Msg("shutting down timelock-worker")
@@ -163,9 +163,10 @@ func (tw *Worker) Listen() error {
 	tw.dumpOperationStore(time.Now)
 
 	// Wait for all goroutines to finish.
-	<-historyDone
-	<-newDone
-	<-schedulingDone
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+
+	<-isclosed.All(shutdownCtx, schedulingDone, historyDone, newDone, processingDone)
 
 	return nil
 }
