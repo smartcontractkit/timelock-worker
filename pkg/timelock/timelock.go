@@ -147,8 +147,15 @@ func (tw *Worker) Listen(ctx context.Context) error {
 	// Main goroutine; processes old and new logs and handles cancellation.
 	processingDone := tw.processLogs(ctxwc, historyCh, logCh)
 
-	// Block until the context is done and then cleanup.
-	<-ctxwc.Done()
+	// Block until the context is done or until processing is completed.
+	// This cover the two cases where timelock-worker can exit:
+	// - A signal to stop timelock-worker was received.
+	// - The subscription errored out and wasn't recovered.
+	select {
+	case <-ctxwc.Done():
+	case <-processingDone:
+	}
+
 	tw.logger.Info().Msg("shutting down timelock-worker")
 	tw.logger.Info().Msg("dumping operation store")
 	tw.dumpOperationStore(time.Now)
@@ -156,7 +163,6 @@ func (tw *Worker) Listen(ctx context.Context) error {
 	// Wait for all goroutines to finish.
 	<-historyDone
 	<-newDone
-	<-processingDone
 	<-schedulingDone
 
 	return nil

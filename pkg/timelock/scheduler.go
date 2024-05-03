@@ -53,7 +53,6 @@ func (tw *Worker) runScheduler(ctx context.Context) <-chan struct{} {
 
 	go func() {
 		defer close(done)
-
 		for {
 			select {
 			case <-tw.ticker.C:
