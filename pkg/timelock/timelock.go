@@ -120,8 +120,8 @@ func NewTimelockWorker(nodeURL, timelockAddress, callProxyAddress, privateKey st
 
 // Listen is the main function of a Timelock Worker.
 // It handles the retrieval of old and new events, contexts and cancellations.
-func (tw *Worker) Listen(ctx context.Context) error {
-	ctxwc, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+func (tw *Worker) Listen() error {
+	ctxwc, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
 	// Log timelock-worker configuration.
