@@ -22,7 +22,7 @@ jobs:
       actions: read
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
 
       - name: Configure aws creds
         uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
@@ -36,11 +36,11 @@ jobs:
         with:
           registries: ${{ secrets.AWS_ACCOUNT_NUMBER }}
 
-      - uses: smartcontractkit/tool-versions-to-env-action@v1.0.8
+      - uses: smartcontractkit/tool-versions-to-env-action@aabd5efbaf28005284e846c5cf3a02f2cba2f4c2 # v1.0.8
         id: tool-versions
 
       - name: Setup go ${{ steps.tool-versions.outputs.golang_version }}
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@0c52d547c9bc32b1aa3301fd7a9cb496313a4491 # v5.0.0
         with:
           go-version: ${{ steps.tool-versions.outputs.golang_version }}
 
@@ -49,7 +49,7 @@ jobs:
 
       - name: Extract Docker metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@8e5442c4ef9f78752691e2d8f8d19755c6f78e81 # v5.5.1
         with:
           images: ${{ secrets.AWS_ACCOUNT_NUMBER }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/timelock-worker
           tags: |
@@ -59,7 +59,7 @@ jobs:
             type=semver,pattern={{version}}
 
       - name: Docker build and push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@2cdde995de11925a030ce8070c3d77a52ffcf1c0 # v5.3.0
         with:
           context: .
           file: builds/Dockerfile
