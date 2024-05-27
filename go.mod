@@ -6,7 +6,7 @@ require (
 	github.com/docker/go-connections v0.5.0
 	github.com/ethereum/go-ethereum v1.13.15
 	github.com/prometheus/client_golang v1.19.1
-	github.com/rs/zerolog v1.31.0
+	github.com/rs/zerolog v1.33.0
 	github.com/smartcontractkit/ccip-owner-contracts v0.0.0-20240917103524-56f1a8d2cd4b
 	github.com/smartcontractkit/chain-selectors v1.0.17
 	github.com/spf13/cobra v1.8.0
