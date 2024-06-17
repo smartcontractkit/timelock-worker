@@ -9,7 +9,7 @@ require (
 	github.com/rs/zerolog v1.33.0
 	github.com/smartcontractkit/ccip-owner-contracts v0.0.0-20240917103524-56f1a8d2cd4b
 	github.com/smartcontractkit/chain-selectors v1.0.17
-	github.com/spf13/cobra v1.8.0
+	github.com/spf13/cobra v1.8.1
 	github.com/spf13/viper v1.19.0
 	github.com/stretchr/testify v1.9.0
 	github.com/testcontainers/testcontainers-go v0.34.0
