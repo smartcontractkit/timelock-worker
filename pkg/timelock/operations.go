@@ -53,7 +53,7 @@ func (tw *Worker) executeCallSchedule(ctx context.Context, c *contract.TimelockT
 		})
 	}
 
-	chainID, err := tw.ethClient.NetworkID(context.Background())
+	chainID, err := tw.ethClient.NetworkID(ctx)
 	if err != nil {
 		return nil, err
 	}
