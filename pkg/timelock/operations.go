@@ -52,14 +52,26 @@ func (tw *Worker) executeCallSchedule(ctx context.Context, c *contract.TimelockT
 		})
 	}
 
+	chainID, err := tw.ethClient.NetworkID(context.Background())
+	if err != nil {
+		return nil, err
+	}
+
+	txOpts := &bind.TransactOpts{
+		From:    fromAddress,
+		Signer:  tw.signTx,
+		Context: ctx,
+	}
+
+	// if chainId is zksync-testnet or mainnet use custom gasPrice to enforce legacy tx
+	if chainID.Cmp(big.NewInt(300)) == 0 || chainID.Cmp(big.NewInt(324)) == 0 {
+		txOpts.GasPrice = big.NewInt(1000000000) // gasPrice set to 1 gwei
+	}
+
 	// Execute the tx's with all the computed calls.
 	// Predecessor and salt are the same for all the tx's.
 	tx, err := c.ExecuteBatch(
-		&bind.TransactOpts{
-			From:     fromAddress,
-			Signer:   tw.signTx,
-			Context:  ctx,
-			GasPrice: big.NewInt(1000000000)}, // gasPrice set to 1 gwei
+		txOpts,
 		calls,
 		cs[0].Predecessor,
 		cs[0].Salt)
