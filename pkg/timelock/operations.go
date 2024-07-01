@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	chainselectors "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/timelock-worker/pkg/timelock/contract"
 )
 
@@ -64,7 +65,7 @@ func (tw *Worker) executeCallSchedule(ctx context.Context, c *contract.TimelockT
 	}
 
 	// if chainId is zksync-testnet or mainnet use custom gasPrice to enforce legacy tx
-	if chainID.Cmp(big.NewInt(300)) == 0 || chainID.Cmp(big.NewInt(324)) == 0 {
+	if chainID.Cmp(new(big.Int).SetUint64(chainselectors.ETHEREUM_MAINNET_ZKSYNC_1.EvmChainID)) == 0 || chainID.Cmp(new(big.Int).SetUint64(chainselectors.ETHEREUM_TESTNET_SEPOLIA_ZKSYNC_1.EvmChainID)) == 0 {
 		txOpts.GasPrice = big.NewInt(1000000000) // gasPrice set to 1 gwei
 	}
 
