@@ -66,9 +66,11 @@ func (tw *Worker) executeCallSchedule(ctx context.Context, c *contract.TimelockT
 
 	// if chainId is zksync-testnet or mainnet use custom gasPrice to enforce legacy tx
 	if chainID.Cmp(new(big.Int).SetUint64(chainselectors.ETHEREUM_MAINNET_ZKSYNC_1.EvmChainID)) == 0 || chainID.Cmp(new(big.Int).SetUint64(chainselectors.ETHEREUM_TESTNET_SEPOLIA_ZKSYNC_1.EvmChainID)) == 0 {
+		tw.logger.Info().Msgf("zkSync chain detected, using legacy tx")
 		txOpts.GasPrice = big.NewInt(1000000000) // gasPrice set to 1 gwei
 	}
 
+	tw.logger.Info().Msgf("Calling execute Batch...")
 	// Execute the tx's with all the computed calls.
 	// Predecessor and salt are the same for all the tx's.
 	tx, err := c.ExecuteBatch(
