@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"fmt"
+	"math/big"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
@@ -55,9 +56,10 @@ func (tw *Worker) executeCallSchedule(ctx context.Context, c *contract.TimelockT
 	// Predecessor and salt are the same for all the tx's.
 	tx, err := c.ExecuteBatch(
 		&bind.TransactOpts{
-			From:    fromAddress,
-			Signer:  tw.signTx,
-			Context: ctx},
+			From:     fromAddress,
+			Signer:   tw.signTx,
+			Context:  ctx,
+			GasPrice: big.NewInt(1000000000)}, // gasPrice set to 1 gwei
 		calls,
 		cs[0].Predecessor,
 		cs[0].Salt)
