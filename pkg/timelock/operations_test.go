@@ -11,7 +11,8 @@ import (
 )
 
 func Test_isOperation(t *testing.T) {
-	testWorker := newTestTimelockWorker(t, testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey, testFromBlock, int64(testPollPeriod), testLogger)
+	testWorker := newTestTimelockWorker(t, testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey,
+		testFromBlock, int64(testPollPeriod), int64(testEventListenerPollPeriod), testLogger)
 
 	var ctx context.Context
 
@@ -54,7 +55,8 @@ func Test_isOperation(t *testing.T) {
 }
 
 func Test_isReady(t *testing.T) {
-	testWorker := newTestTimelockWorker(t, testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey, testFromBlock, int64(testPollPeriod), testLogger)
+	testWorker := newTestTimelockWorker(t, testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey,
+		testFromBlock, int64(testPollPeriod), int64(testEventListenerPollPeriod), testLogger)
 
 	var ctx context.Context
 
@@ -97,7 +99,8 @@ func Test_isReady(t *testing.T) {
 }
 
 func Test_isDone(t *testing.T) {
-	testWorker := newTestTimelockWorker(t, testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey, testFromBlock, int64(testPollPeriod), testLogger)
+	testWorker := newTestTimelockWorker(t, testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey,
+		testFromBlock, int64(testPollPeriod), int64(testEventListenerPollPeriod), testLogger)
 
 	var ctx context.Context
 
@@ -112,7 +115,7 @@ func Test_isDone(t *testing.T) {
 		want bool
 	}{
 		{
-			name: "isOperation: empty, should fail",
+			name: "isDone: empty, should fail",
 			args: args{
 				ctx: ctx,
 				c:   testWorker.contract,
@@ -121,7 +124,7 @@ func Test_isDone(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "isOperation: real operation, should succeed",
+			name: "isDone: real operation, should succeed",
 			args: args{
 				ctx: ctx,
 				c:   testWorker.contract,
@@ -140,7 +143,8 @@ func Test_isDone(t *testing.T) {
 }
 
 func Test_isPending(t *testing.T) {
-	testWorker := newTestTimelockWorker(t, testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey, testFromBlock, int64(testPollPeriod), testLogger)
+	testWorker := newTestTimelockWorker(t, testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey,
+		testFromBlock, int64(testPollPeriod), int64(testEventListenerPollPeriod), testLogger)
 
 	var ctx context.Context
 
@@ -155,7 +159,7 @@ func Test_isPending(t *testing.T) {
 		want bool
 	}{
 		{
-			name: "isOperation: empty, should fail",
+			name: "isPending: empty, should fail",
 			args: args{
 				ctx: ctx,
 				c:   testWorker.contract,
@@ -164,7 +168,7 @@ func Test_isPending(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "isOperation: real operation, should succeed",
+			name: "isPending: real operation, should succeed",
 			args: args{
 				ctx: ctx,
 				c:   testWorker.contract,

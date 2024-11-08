@@ -9,7 +9,10 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func newTestTimelockWorker(t *testing.T, nodeURL, timelockAddress, callProxyAddress, privateKey string, fromBlock *big.Int, pollPeriod int64, logger *zerolog.Logger) *Worker {
+func newTestTimelockWorker(
+	t *testing.T, nodeURL, timelockAddress, callProxyAddress, privateKey string, fromBlock *big.Int,
+	pollPeriod int64, eventListenerPollPeriod int64, logger *zerolog.Logger,
+) *Worker {
 	assert.NotEmpty(t, nodeURL, "nodeURL is empty. Are environment variabes in const_test.go set?")
 	assert.NotEmpty(t, timelockAddress, "nodeURL is empty. Are environment variabes in const_test.go set?")
 	assert.NotEmpty(t, callProxyAddress, "callProxyAddress is empty. Are environment variabes in const_test.go set?")
@@ -18,7 +21,8 @@ func newTestTimelockWorker(t *testing.T, nodeURL, timelockAddress, callProxyAddr
 	assert.NotEmpty(t, pollPeriod, "pollPeriod is empty. Are environment variabes in const_test.go set?")
 	assert.NotNil(t, logger, "logger is nil. Are environment variabes in const_test.go set?")
 
-	tw, err := NewTimelockWorker(nodeURL, timelockAddress, callProxyAddress, privateKey, fromBlock, pollPeriod, logger)
+	tw, err := NewTimelockWorker(nodeURL, timelockAddress, callProxyAddress, privateKey, fromBlock,
+		pollPeriod, eventListenerPollPeriod, logger)
 	assert.NoError(t, err)
 	assert.NotNil(t, tw)
 
@@ -26,16 +30,18 @@ func newTestTimelockWorker(t *testing.T, nodeURL, timelockAddress, callProxyAddr
 }
 
 func TestNewTimelockWorker(t *testing.T) {
-	testWorker := newTestTimelockWorker(t, testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey, testFromBlock, int64(testPollPeriod), testLogger)
+	testWorker := newTestTimelockWorker(t, testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey,
+		testFromBlock, int64(testPollPeriod), int64(testEventListenerPollPeriod), testLogger)
 
 	type args struct {
-		nodeURL          string
-		timelockAddress  string
-		callProxyAddress string
-		privateKey       string
-		fromBlock        *big.Int
-		pollPeriod       int64
-		logger           *zerolog.Logger
+		nodeURL                 string
+		timelockAddress         string
+		callProxyAddress        string
+		privateKey              string
+		fromBlock               *big.Int
+		pollPeriod              int64
+		eventListenerPollPeriod int64
+		logger                  *zerolog.Logger
 	}
 	tests := []struct {
 		name    string
@@ -158,7 +164,8 @@ func TestNewTimelockWorker(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := NewTimelockWorker(tt.args.nodeURL, tt.args.timelockAddress, tt.args.callProxyAddress, tt.args.privateKey, tt.args.fromBlock, tt.args.pollPeriod, tt.args.logger)
+			got, err := NewTimelockWorker(tt.args.nodeURL, tt.args.timelockAddress, tt.args.callProxyAddress,
+				tt.args.privateKey, tt.args.fromBlock, tt.args.pollPeriod, tt.args.eventListenerPollPeriod, tt.args.logger)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewTimelockWorker() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -171,7 +178,8 @@ func TestNewTimelockWorker(t *testing.T) {
 }
 
 func TestWorker_startLog(t *testing.T) {
-	testWorker := newTestTimelockWorker(t, testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey, testFromBlock, int64(testPollPeriod), testLogger)
+	testWorker := newTestTimelockWorker(t, testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey,
+		testFromBlock, int64(testPollPeriod), int64(testEventListenerPollPeriod), testLogger)
 
 	tests := []struct {
 		name string
