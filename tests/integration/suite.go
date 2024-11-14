@@ -12,7 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/smartcontractkit/timelock-worker/pkg/contracts"
+	contracts "github.com/smartcontractkit/ccip-owner-contracts/gethwrappers"
 	"github.com/smartcontractkit/timelock-worker/tests/containers"
 )
 

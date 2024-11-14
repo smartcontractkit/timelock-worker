@@ -20,7 +20,10 @@ func (s *integrationTestSuite) TestTimelockWorkerListen() {
 	ctx, cancel := context.WithCancel(s.Ctx)
 	defer cancel()
 
-	_, err := s.GethContainer.CreateAccount(ctx, account1.String(), keyFileJson1, 1)
+	account1 := NewTestAccount(s.T())
+	s.Logf("new account created: %v", account1)
+
+	_, err := s.GethContainer.CreateAccount(ctx, account1.hexAddress, account1.hexPrivateKey, 1)
 	s.Require().NoError(err)
 
 	// create geth rpc client
@@ -28,7 +31,7 @@ func (s *integrationTestSuite) TestTimelockWorkerListen() {
 	client, err := ethclient.DialContext(ctx, gethURL)
 	s.Require().NoError(err)
 
-	transactor := s.KeyedTransactor(ecdsaPrivateKey1, nil)
+	transactor := s.KeyedTransactor(account1.privateKey, nil)
 
 	tests := []struct {
 		name string
@@ -44,11 +47,11 @@ func (s *integrationTestSuite) TestTimelockWorkerListen() {
 
 			logger := timelockTests.NewTestLogger(zerolog.Nop()) // "zerolog.TestWriter{T: t, Frame: 6}" when debugging
 
-			timelockAddress, _, _, timelockContract := s.DeployTimelock(ctx, transactor, client, account1)
+			timelockAddress, _, _, timelockContract := s.DeployTimelock(ctx, transactor, client, account1.address)
 			callProxyAddress, _, _, _ := s.DeployCallProxy(ctx, transactor, client, timelockAddress)
 
 			go runTimelockWorker(s.T(), sctx, tt.url, timelockAddress.String(), callProxyAddress.String(),
-				privateKey1, big.NewInt(0), int64(60), int64(1), logger.Logger())
+				account1.hexPrivateKey, big.NewInt(0), int64(60), int64(1), logger.Logger())
 
 			s.UpdateDelay(ctx, transactor, client, timelockContract, big.NewInt(10))
 

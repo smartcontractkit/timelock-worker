@@ -30,7 +30,7 @@ func exec(ctx context.Context, container testcontainers.Container, command []str
 	buf := new(strings.Builder)
 	_, err = io.Copy(buf, outputReader)
 	if err != nil {
-		return 0, "", fmt.Errorf("error reading balance from io.Reader: %w", err)
+		return 0, "", fmt.Errorf("error reading output from io.Reader: %w", err)
 	}
 
 	return statusCode, buf.String(), nil

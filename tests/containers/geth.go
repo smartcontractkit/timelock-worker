@@ -95,12 +95,18 @@ func (g *GethContainer) Teardown(ctx context.Context) error {
 func (g *GethContainer) CreateAccount(
 	ctx context.Context, address, privateKey string, initialBalance uint64,
 ) (big.Int, error) {
-	keystorePath := fmt.Sprintf("%s/UTC--%s--%s",
-		keystoreDir, time.Now().UTC().Format(timestampFormat), strings.TrimLeft(address, "0x"))
-
-	err := g.Container.CopyToContainer(ctx, []byte(privateKey), keystorePath, 0o600)
+	// import account using the privateKey bytes
+	privateKeyPath := fmt.Sprintf("%s/%s.account", dataDir, address)
+	err := g.Container.CopyToContainer(ctx, []byte(privateKey), privateKeyPath, 0o600)
 	if err != nil {
 		return big.Int{}, fmt.Errorf("error copying private key to container: %w", err)
+	}
+
+	importAccountCommand := []string{"geth", "account", "import", "--datadir", dataDir,
+		"--password", "/dev/null", privateKeyPath}
+	statusCode, importOutput, err := exec(ctx, g.Container, importAccountCommand)
+	if err != nil || statusCode != 0 {
+		return big.Int{}, fmt.Errorf("failed to import account (code: %d): %w\n%v", statusCode, err, importOutput)
 	}
 
 	// get list of accounts and ensure the given address was added
@@ -126,7 +132,7 @@ func (g *GethContainer) CreateAccount(
 			value: web3.toWei(%d, "ether")
 		})`, address, initialBalance),
 	}
-	statusCode, _, err := exec(ctx, g.Container, sendTransactionCommand)
+	statusCode, _, err = exec(ctx, g.Container, sendTransactionCommand)
 	if err != nil || statusCode != 0 {
 		return big.Int{}, fmt.Errorf("failed to send funds to new account (code: %d): %w", statusCode, err)
 	}
