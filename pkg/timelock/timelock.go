@@ -193,6 +193,12 @@ func (tw *Worker) setupFilterQuery(fromBlock *big.Int) ethereum.FilterQuery {
 	}
 }
 
+// retrieveNewLogs returns a "control channel" and a "logs channels". The logs channel is where
+// new log events will be asynchronously pushed to.
+//
+// The actual retrieveal is performed by either `subscribeNewLogs`, if the node connection
+// supports subscriptions, or `pollNewLogs` otherwise.
+// (in practice, the ethclient library simply checks if the given node URL is "http(s)" or not)
 func (tw *Worker) retrieveNewLogs(ctx context.Context) (<-chan struct{}, <-chan types.Log, error) {
 	if tw.ethClient.Client().SupportsSubscriptions() {
 		return tw.subscribeNewLogs(ctx)
