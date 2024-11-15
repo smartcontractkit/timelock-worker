@@ -114,6 +114,8 @@ func (tw *Worker) updateSchedulerDelay(t time.Duration) {
 
 // addToScheduler adds a new CallSchedule operation safely to the store.
 func (tw *Worker) addToScheduler(op *contract.TimelockCallScheduled) {
+	tw.mu.Lock()
+	defer tw.mu.Unlock()
 	tw.logger.Debug().Msgf("scheduling operation: %x", op.Id)
 	tw.add <- op
 	tw.logger.Debug().Msgf("operations in scheduler: %v", len(tw.store))
@@ -121,6 +123,8 @@ func (tw *Worker) addToScheduler(op *contract.TimelockCallScheduled) {
 
 // delFromScheduler deletes an operation safely from the store.
 func (tw *Worker) delFromScheduler(op operationKey) {
+	tw.mu.Lock()
+	defer tw.mu.Unlock()
 	tw.logger.Debug().Msgf("de-scheduling operation: %v", op)
 	tw.del <- op
 	tw.logger.Debug().Msgf("operations in scheduler: %v", len(tw.store))

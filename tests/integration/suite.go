@@ -61,7 +61,8 @@ func (s *integrationTestSuite) KeyedTransactor(privateKey *ecdsa.PrivateKey, cha
 }
 
 func (s *integrationTestSuite) DeployTimelock(
-	ctx context.Context, transactor *bind.TransactOpts, client *ethclient.Client, adminAccount common.Address,
+	ctx context.Context, transactor *bind.TransactOpts, client *ethclient.Client,
+	adminAccount common.Address, minDelay *big.Int,
 ) (
 	common.Address, *types.Transaction, *types.Receipt, *contracts.RBACTimelock,
 ) {
@@ -71,7 +72,7 @@ func (s *integrationTestSuite) DeployTimelock(
 	bypassers := []common.Address{}
 
 	address, transaction, contract, err := contracts.DeployRBACTimelock(
-		transactor, client, big.NewInt(10800), adminAccount, proposers, executors, cancellers, bypassers)
+		transactor, client, minDelay, adminAccount, proposers, executors, cancellers, bypassers)
 	s.Require().NoError(err)
 
 	receipt, err := bind.WaitMined(ctx, client, transaction)
@@ -116,5 +117,23 @@ func (s *integrationTestSuite) UpdateDelay(
 
 	s.Logf("update delay transaction: %v", transaction.Hash())
 
+	return transaction, receipt
+}
+
+func (s *integrationTestSuite) ScheduleBatch(
+	ctx context.Context, transactor *bind.TransactOpts, client *ethclient.Client,
+	timelockContract *contracts.RBACTimelock, calls []contracts.RBACTimelockCall,
+	predecessor [32]byte, salt [32]byte, delay *big.Int,
+) (
+	*types.Transaction, *types.Receipt,
+) {
+	transaction, err := timelockContract.ScheduleBatch(transactor, calls, predecessor, salt, delay)
+	s.Require().NoError(err)
+
+	receipt, err := bind.WaitMined(ctx, client, transaction)
+	s.Require().NoError(err)
+	s.Require().Equal(receipt.Status, types.ReceiptStatusSuccessful)
+
+	s.Logf("schedule batch transaction: %v", transaction.Hash())
 	return transaction, receipt
 }
