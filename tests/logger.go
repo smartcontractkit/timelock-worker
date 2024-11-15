@@ -57,7 +57,7 @@ func (tl testLogger) LastMessage() string {
 	tl.mutex.Lock()
 	defer tl.mutex.Unlock()
 
-	return (*tl.messages)[tl.NumMessages()-1]
+	return (*tl.messages)[len(*tl.messages)-1]
 }
 
 func (tl testLogger) Messages() []string {

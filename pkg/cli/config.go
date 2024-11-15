@@ -3,7 +3,9 @@ package cli
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/spf13/viper"
 )
@@ -17,6 +19,7 @@ type Config struct {
 	FromBlock               int64  `mapstructure:"FROM_BLOCK"`
 	PollPeriod              int64  `mapstructure:"POLL_PERIOD"`
 	EventListenerPollPeriod int64  `mapstructure:"EVENT_LISTENER_POLL_PERIOD"`
+	DryRun                  bool   `mapstructure:"DRY_RUN"`
 }
 
 // NewTimelockCLI return a new Timelock instance configured.
@@ -78,6 +81,11 @@ func NewTimelockCLI() (*Config, error) {
 		}
 
 		c.EventListenerPollPeriod = int64(pp)
+	}
+
+	if os.Getenv("DRY_RUN") != "" {
+		trueValues := []string{"true", "yes", "on", "enabled", "1"}
+		c.DryRun = slices.Contains(trueValues, strings.ToLower(os.Getenv("DRY_RUN")))
 	}
 
 	return &c, nil
