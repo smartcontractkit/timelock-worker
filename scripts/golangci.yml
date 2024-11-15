@@ -50,3 +50,6 @@ linters:
     max-same-issues: 0
   severity:
     default-severity: error
+issues:
+  exclude-dirs:
+  - pkg/contracts

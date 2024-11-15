@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 
@@ -9,12 +10,13 @@ import (
 
 // Config holds the timelock.env configuration structure.
 type Config struct {
-	NodeURL          string `mapstructure:"NODE_URL"`
-	TimelockAddress  string `mapstructure:"TIMELOCK_ADDRESS"`
-	CallProxyAddress string `mapstructure:"CALL_PROXY_ADDRESS"`
-	PrivateKey       string `mapstructure:"PRIVATE_KEY"`
-	FromBlock        int64  `mapstructure:"FROM_BLOCK"`
-	PollPeriod       int64  `mapstructure:"POLL_PERIOD"`
+	NodeURL                 string `mapstructure:"NODE_URL"`
+	TimelockAddress         string `mapstructure:"TIMELOCK_ADDRESS"`
+	CallProxyAddress        string `mapstructure:"CALL_PROXY_ADDRESS"`
+	PrivateKey              string `mapstructure:"PRIVATE_KEY"`
+	FromBlock               int64  `mapstructure:"FROM_BLOCK"`
+	PollPeriod              int64  `mapstructure:"POLL_PERIOD"`
+	EventListenerPollPeriod int64  `mapstructure:"EVENT_LISTENER_POLL_PERIOD"`
 }
 
 // NewTimelockCLI return a new Timelock instance configured.
@@ -53,16 +55,29 @@ func NewTimelockCLI() (*Config, error) {
 
 	if os.Getenv("FROM_BLOCK") != "" {
 		fb, err := strconv.Atoi(os.Getenv("FROM_BLOCK"))
-		if err == nil {
-			c.FromBlock = int64(fb)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse FROM_BLOCK value: %w", err)
 		}
+
+		c.FromBlock = int64(fb)
 	}
 
 	if os.Getenv("POLL_PERIOD") != "" {
 		pp, err := strconv.Atoi(os.Getenv("POLL_PERIOD"))
-		if err == nil {
-			c.PollPeriod = int64(pp)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse POLL_PERIOD value: %w", err)
 		}
+
+		c.PollPeriod = int64(pp)
+	}
+
+	if os.Getenv("EVENT_LISTENER_POLL_PERIOD") != "" {
+		pp, err := strconv.Atoi(os.Getenv("EVENT_LISTENER_POLL_PERIOD"))
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse EVENT_LISTENER_POLL_PERIOD value: %w", err)
+		}
+
+		c.EventListenerPollPeriod = int64(pp)
 	}
 
 	return &c, nil
