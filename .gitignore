@@ -14,6 +14,13 @@ MacOSX*
 report.html
 timelock-worker.log
 
+# Test & linter reports
+*report.xml
+*report.json
+*.out
+*coverage*
+testdata/
+
 # Test binary, built with `go test -c`
 *.test
 
