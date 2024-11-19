@@ -13,10 +13,10 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/rs/zerolog"
+	"github.com/samber/lo"
 	contracts "github.com/smartcontractkit/ccip-owner-contracts/gethwrappers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/samber/lo"
 
 	"github.com/smartcontractkit/timelock-worker/pkg/timelock"
 	timelockTests "github.com/smartcontractkit/timelock-worker/tests"
@@ -94,7 +94,15 @@ func (s *integrationTestSuite) TestTimelockWorkerDryRun() {
 			name:   "dry run enabled",
 			dryRun: true,
 			assert: func(t *testing.T, logger timelockTests.TestLogger) {
-				requireJSONSubset(s.T(), logger.LastMessage(), `{"message":"CallScheduled received"}`)
+				messages := []string{
+					`"message":"CallScheduled received"`,
+					`"message":"nop.addToScheduler"`,
+				}
+				s.Require().EventuallyWithT(func(t *assert.CollectT) {
+					for _, message := range messages {
+						s.Assert().True(containsMatchingMessage(logger, regexp.MustCompile(message)))
+					}
+				}, 2*time.Second, 100*time.Millisecond)
 			},
 		},
 		{
@@ -103,19 +111,18 @@ func (s *integrationTestSuite) TestTimelockWorkerDryRun() {
 			assert: func(t *testing.T, logger timelockTests.TestLogger) {
 				messages := []string{
 					`"message":"scheduling operation: 371141ec10c0cc52996bed94240931136172d0b46bdc4bceaea1ef76675c1237"`,
-					`"message":"operations in scheduler:`,
 					`"message":"scheduled operation: 371141ec10c0cc52996bed94240931136172d0b46bdc4bceaea1ef76675c1237"`,
 				}
 				s.Require().EventuallyWithT(func(t *assert.CollectT) {
 					for _, message := range messages {
-						s.Assert().True(containsMatchingMessage( logger, regexp.MustCompile(message)))
+						s.Assert().True(containsMatchingMessage(logger, regexp.MustCompile(message)))
 					}
 				}, 2*time.Second, 100*time.Millisecond)
 			},
 		},
 	}
 	for _, tt := range tests {
-		s.Run(tt.name, func(t *testing.T) {
+		s.Run(tt.name, func() {
 			tctx, cancel := context.WithCancel(ctx)
 			defer cancel()
 
@@ -125,7 +132,7 @@ func (s *integrationTestSuite) TestTimelockWorkerDryRun() {
 			callProxyAddress, _, _, _ := s.DeployCallProxy(tctx, transactor, client, timelockAddress)
 
 			go runTimelockWorker(s.T(), tctx, gethURL, timelockAddress.String(), callProxyAddress.String(),
-				account.hexPrivateKey, big.NewInt(0), int64(60), int64(1), tt.dryRun, logger.Logger())
+				account.hexPrivateKey, big.NewInt(0), int64(1), int64(1), tt.dryRun, logger.Logger())
 
 			calls := []contracts.RBACTimelockCall{{
 				Target: common.HexToAddress("0x000000000000000000000000000000000000000"),
@@ -134,7 +141,7 @@ func (s *integrationTestSuite) TestTimelockWorkerDryRun() {
 			}}
 			s.ScheduleBatch(tctx, transactor, client, timelockContract, calls, [32]byte{}, [32]byte{}, big.NewInt(1))
 
-			tt.assert(t, logger)
+			tt.assert(s.T(), logger)
 		})
 	}
 }

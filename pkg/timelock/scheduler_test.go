@@ -1,22 +1,31 @@
 package timelock
 
 import (
+	"context"
 	"fmt"
+	"math/big"
+	"math/rand"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/google/go-cmp/cmp"
 	"github.com/rs/zerolog"
+	"github.com/samber/lo"
 	"github.com/smartcontractkit/timelock-worker/pkg/timelock/contract"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func Test_newScheduler(t *testing.T) {
-	tScheduler := newScheduler(10 * time.Second)
+	logger := zerolog.Nop()
+	execFn := func(context.Context, []*contract.TimelockCallScheduled) {}
+	tScheduler := newTestScheduler()
 
 	type args struct {
 		tick time.Duration
@@ -36,7 +45,7 @@ func Test_newScheduler(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := newScheduler(tt.args.tick)
+			got := newScheduler(tt.args.tick, &logger, execFn)
 			if reflect.TypeOf(got) != reflect.TypeOf(tt.want) {
 				t.Errorf("newScheduler() = %v, want %v", got, tt.want)
 			}
@@ -44,47 +53,45 @@ func Test_newScheduler(t *testing.T) {
 	}
 }
 
-func TestWorker_updateSchedulerDelay(t *testing.T) {
-	testWorker := newTestTimelockWorker(t, testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey,
-		testFromBlock, int64(testPollPeriod), int64(testEventListenerPollPeriod), testDryRun, testLogger)
+func Test_scheduler_updateSchedulerDelay(t *testing.T) {
+	tScheduler := newTestScheduler()
 
 	// Should never fail
-	testWorker.updateSchedulerDelay(1 * time.Second)
-	testWorker.updateSchedulerDelay(-1 * time.Second)
-	testWorker.updateSchedulerDelay(0 * time.Second)
+	tScheduler.updateSchedulerDelay(1 * time.Second)
+	tScheduler.updateSchedulerDelay(-1 * time.Second)
+	tScheduler.updateSchedulerDelay(0 * time.Second)
 }
 
-func TestWorker_isSchedulerBusy(t *testing.T) {
-	testWorker := newTestTimelockWorker(t, testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey,
-		testFromBlock, int64(testPollPeriod), int64(testEventListenerPollPeriod), testDryRun, testLogger)
+func Test_scheduler_isSchedulerBusy(t *testing.T) {
+	tScheduler := newTestScheduler()
 
-	isBusy := testWorker.isSchedulerBusy()
+	isBusy := tScheduler.isSchedulerBusy()
 	assert.Equal(t, false, isBusy, "scheduler should be busy by default")
 
-	testWorker.setSchedulerBusy()
-	isBusy = testWorker.isSchedulerBusy()
+	tScheduler.setSchedulerBusy()
+	isBusy = tScheduler.isSchedulerBusy()
 	assert.Equal(t, true, isBusy, "scheduler should be busy after setSchedulerBusy()")
 
-	testWorker.setSchedulerFree()
-	isBusy = testWorker.isSchedulerBusy()
+	tScheduler.setSchedulerFree()
+	isBusy = tScheduler.isSchedulerBusy()
 	assert.Equal(t, false, isBusy, "scheduler shouldn't be busy after setSchedulerFree()")
 }
 
-func TestWorker_setSchedulerBusy(t *testing.T) {
-	testWorker := newTestTimelockWorker(t, testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey,
-		testFromBlock, int64(testPollPeriod), int64(testEventListenerPollPeriod), testDryRun, testLogger)
+func Test_scheduler_setSchedulerBusy(t *testing.T) {
+	tScheduler := newTestScheduler()
 
-	testWorker.setSchedulerBusy()
-	isBusy := testWorker.isSchedulerBusy()
+	tScheduler.setSchedulerBusy()
+	isBusy := tScheduler.isSchedulerBusy()
 	assert.Equal(t, true, isBusy, "scheduler should be busy after setSchedulerBusy()")
 }
 
-func TestWorker_setSchedulerFree(t *testing.T) {
-	testWorker := newTestTimelockWorker(t, testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey,
-		testFromBlock, int64(testPollPeriod), int64(testEventListenerPollPeriod), testDryRun, testLogger)
+func Test_scheduler_setSchedulerFree(t *testing.T) {
+	logger := zerolog.Nop()
+	execFn := func(context.Context, []*contract.TimelockCallScheduled) {}
+	tScheduler := newScheduler(10 * time.Second, &logger, execFn)
 
-	testWorker.setSchedulerFree()
-	isBusy := testWorker.isSchedulerBusy()
+	tScheduler.setSchedulerFree()
+	isBusy := tScheduler.isSchedulerBusy()
 	assert.Equal(t, false, isBusy, "scheduler shouldn't be busy after setSchedulerFree()")
 }
 
@@ -92,7 +99,6 @@ func TestWorker_setSchedulerFree(t *testing.T) {
 func Test_dumpOperationStore(t *testing.T) {
 	var (
 		fName         = logPath + logFile
-		logger        = zerolog.Nop()
 		earliestBlock = 42
 		opKeys        = generateOpKeys(t, []string{"1", "2"})
 
@@ -117,11 +123,9 @@ func Test_dumpOperationStore(t *testing.T) {
 			opKeys[1]: {following},
 		}
 
-		worker = &Worker{
-			logger: &logger,
-			scheduler: scheduler{
-				store: store,
-			},
+		scheduler = scheduler{
+			store: store,
+			logger: func(l zerolog.Logger) *zerolog.Logger { return &l }(zerolog.Nop()),
 		}
 	)
 
@@ -139,7 +143,7 @@ func Test_dumpOperationStore(t *testing.T) {
 	wantPrefix := fmt.Sprintf("Process stopped at %v\n", nowFunc().In(time.UTC))
 
 	// Write the store to the file.
-	worker.dumpOperationStore(nowFunc)
+	scheduler.dumpOperationStore(nowFunc)
 
 	// Read the file and compare the contents.
 	gotRead, err := os.ReadFile(fName)
@@ -151,6 +155,48 @@ func Test_dumpOperationStore(t *testing.T) {
 	wantRead = append(wantRead, []byte(toEarliestRecord(earliest))...)
 	wantRead = append(wantRead, []byte(toSubsequentRecord(following))...)
 	assert.Equal(t, wantRead, gotRead)
+}
+
+func Test_scheduler_concurrency(t *testing.T) {
+	const numOps = 100
+	logger := zerolog.Nop()
+	ctx, cancel := context.WithCancel(context.Background())
+
+	executedOps := map[int]uint16{} // {numericOpId: executionCount}
+	executedCh := make(chan operationKey)
+	execFn := func(ctx context.Context, ops []*contract.TimelockCallScheduled) {
+		for _, op := range ops {
+			opNum := int(opIDToNum(t, op.Id))
+			executedOps[opNum] = executedOps[opNum] + 1
+			go func() {
+				time.Sleep(time.Duration(1+rand.Intn(50)) * time.Millisecond)
+				executedCh <- op.Id
+			}()
+		}
+	}
+
+	// run scheduler
+	testScheduler := newScheduler(10*time.Millisecond, &logger, execFn)
+	_ = testScheduler.runScheduler(ctx)
+
+	// run mock event listener
+	go runMockEventListener(t, ctx, cancel, testScheduler, executedCh, numOps)
+
+	// wait for all operations to be executed
+	<-ctx.Done()
+
+	require.GreaterOrEqual(t, len(executedOps), numOps)
+	executedIDs := lo.Keys(executedOps)
+	slices.Sort(executedIDs)
+	require.Empty(t, cmp.Diff(lo.Range(100), executedIDs[:numOps]))
+}
+
+// ----- helpers -----
+
+func newTestScheduler() *scheduler {
+	logger := zerolog.Nop()
+	execFn := func(context.Context, []*contract.TimelockCallScheduled) {}
+	return newScheduler(10 * time.Second, &logger, execFn)
 }
 
 // generateOpKeys generates a slice of operation keys from a slice of strings.
@@ -166,4 +212,50 @@ func generateOpKeys(t *testing.T, in []string) [][32]byte {
 		opKeys = append(opKeys, key)
 	}
 	return opKeys
+}
+
+func runMockEventListener(
+	t *testing.T,
+	ctx context.Context,
+	cancel context.CancelFunc,
+	testScheduler *scheduler,
+	executedCh <-chan operationKey,
+	lastOpID int16,
+) {
+	t.Helper()
+
+	opNum := int64(0)
+
+	ticker := time.NewTicker(15 * time.Millisecond)
+	for {
+		select {
+		case <-ticker.C:
+			op := &contract.TimelockCallScheduled{Id: opID(uint16(opNum)), Index: big.NewInt(0)}
+			opNum += 1
+			testScheduler.addToScheduler(op)
+
+		case executedOpID := <-executedCh:
+			testScheduler.delFromScheduler(executedOpID)
+			if opIDToNum(t, executedOpID) == lastOpID {
+				cancel()
+			}
+
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func opID(n uint16) [32]byte {
+	id := [32]byte{}
+	id[31] = byte(n)
+	id[30] = byte(n >> 8)
+	return id
+}
+
+func opIDToNum(t *testing.T, opID [32]byte) int16 {
+	t.Helper()
+	opNum, ok := new(big.Int).SetString(fmt.Sprintf("%x", opID), 16)
+	require.True(t, ok)
+	return int16(opNum.Uint64())
 }

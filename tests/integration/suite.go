@@ -78,7 +78,6 @@ func (s *integrationTestSuite) DeployTimelock(
 	receipt, err := bind.WaitMined(ctx, client, transaction)
 	s.Require().NoError(err)
 	s.Require().Equal(types.ReceiptStatusSuccessful, receipt.Status)
-
 	s.Logf("timelock address: %v; deploy transaction: %v", address, transaction.Hash())
 
 	return address, transaction, receipt, contract
@@ -96,7 +95,6 @@ func (s *integrationTestSuite) DeployCallProxy(
 	receipt, err := bind.WaitMined(ctx, client, transaction)
 	s.Require().NoError(err)
 	s.Require().Equal(types.ReceiptStatusSuccessful, receipt.Status)
-
 	s.Logf("call proxy address: %v; deploy transaction: %v", address, transaction.Hash())
 
 	return address, transaction, receipt, contract
@@ -114,7 +112,6 @@ func (s *integrationTestSuite) UpdateDelay(
 	receipt, err := bind.WaitMined(ctx, client, transaction)
 	s.Require().NoError(err)
 	s.Require().Equal(types.ReceiptStatusSuccessful, receipt.Status)
-
 	s.Logf("update delay transaction: %v", transaction.Hash())
 
 	return transaction, receipt
@@ -132,8 +129,8 @@ func (s *integrationTestSuite) ScheduleBatch(
 
 	receipt, err := bind.WaitMined(ctx, client, transaction)
 	s.Require().NoError(err)
-	s.Require().Equal(receipt.Status, types.ReceiptStatusSuccessful)
-
+	s.Require().Equal(types.ReceiptStatusSuccessful, receipt.Status)
 	s.Logf("schedule batch transaction: %v", transaction.Hash())
+
 	return transaction, receipt
 }
