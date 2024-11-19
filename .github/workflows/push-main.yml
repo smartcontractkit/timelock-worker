@@ -26,3 +26,22 @@ jobs:
     steps:
       - name: Linting Go Misc
         uses: smartcontractkit/.github/actions/ci-lint-misc@7a4d99cb349ea8f25195d2390d157942031f8a57
+
+  ci-test:
+    name: Tests
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      actions: read
+    env:
+      TEST_NODE_URL: '${{ secrets.TEST_NODE_URL }}'
+      TEST_TIMELOCK_ADDRESS: '${{ secrets.TEST_TIMELOCK_ADDRESS }}'
+      TEST_PROXY_ADDRESS: '${{ secrets.TEST_PROXY_ADDRESS }}'
+      TEST_PRIVATE_KEY: '${{ secrets.TEST_PRIVATE_KEY }}'
+    steps:
+      - name: Build and test
+        uses: smartcontractkit/.github/actions/ci-test-go@7a4d99cb349ea8f25195d2390d157942031f8a57
+        with:
+          go-test-cmd: go test -short -coverprofile=coverage.out -covermode=atomic -race ./...
+          use-go-cache: true
