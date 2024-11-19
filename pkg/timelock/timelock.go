@@ -39,7 +39,7 @@ type Worker struct {
 	dryRun             bool
 	logger             *zerolog.Logger
 	privateKey         *ecdsa.PrivateKey
-	scheduler
+	scheduler          Scheduler
 }
 
 var httpSchemes = []string{"http", "https"}
@@ -130,7 +130,12 @@ func NewTimelockWorker(
 		dryRun:             dryRun,
 		logger:             logger,
 		privateKey:         privateKeyECDSA,
-		scheduler:          *newScheduler(time.Duration(pollPeriod) * time.Second),
+	}
+
+	if dryRun {
+		tWorker.scheduler = newNopScheduler(logger)
+	} else {
+		tWorker.scheduler = newScheduler(time.Duration(pollPeriod)*time.Second, logger, tWorker.execute)
 	}
 
 	return tWorker, nil
@@ -145,7 +150,7 @@ func (tw *Worker) Listen(ctx context.Context) error {
 	tw.startLog()
 
 	// Run the scheduler to add/del operations in a thread-safe way.
-	schedulingDone := tw.runScheduler(ctxwc)
+	schedulingDone := tw.scheduler.runScheduler(ctxwc)
 
 	// Retrieve historical logs.
 	historyDone, historyCh, err := tw.retrieveHistoricalLogs(ctxwc)
@@ -176,7 +181,7 @@ func (tw *Worker) Listen(ctx context.Context) error {
 
 	tw.logger.Info().Msg("shutting down timelock-worker")
 	tw.logger.Info().Msg("dumping operation store")
-	tw.dumpOperationStore(time.Now)
+	tw.scheduler.dumpOperationStore(time.Now)
 
 	// Wait for all goroutines to finish.
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Second*5)
@@ -459,9 +464,7 @@ func (tw *Worker) handleLog(ctx context.Context, log types.Log) error {
 
 		if !isDone(ctx, tw.contract, cs.Id) && isOperation(ctx, tw.contract, cs.Id) {
 			tw.logger.Info().Hex(fieldTXHash, cs.Raw.TxHash[:]).Uint64(fieldBlockNumber, cs.Raw.BlockNumber).Msgf("%s received", eventCallScheduled)
-			if !tw.dryRun {
-				tw.addToScheduler(cs)
-			}
+			tw.scheduler.addToScheduler(cs)
 		}
 
 		// A CallExecuted which is in Done status should delete the task in the scheduler store.
@@ -473,9 +476,7 @@ func (tw *Worker) handleLog(ctx context.Context, log types.Log) error {
 
 		if isDone(ctx, tw.contract, cs.Id) {
 			tw.logger.Info().Hex(fieldTXHash, cs.Raw.TxHash[:]).Uint64(fieldBlockNumber, cs.Raw.BlockNumber).Msgf("%s received, skipping operation", eventCallExecuted)
-			if !tw.dryRun {
-				tw.delFromScheduler(cs.Id)
-			}
+			tw.scheduler.delFromScheduler(cs.Id)
 		}
 
 		// A Cancelled which is in Done status should delete the task in the scheduler store.
@@ -487,9 +488,7 @@ func (tw *Worker) handleLog(ctx context.Context, log types.Log) error {
 
 		if isDone(ctx, tw.contract, cs.Id) {
 			tw.logger.Info().Hex(fieldTXHash, cs.Raw.TxHash[:]).Uint64(fieldBlockNumber, cs.Raw.BlockNumber).Msgf("%s received, cancelling operation", eventCancelled)
-			if !tw.dryRun {
-				tw.delFromScheduler(cs.Id)
-			}
+			tw.scheduler.delFromScheduler(cs.Id)
 		}
 	default:
 		tw.logger.Info().Str("event", event.Name).Msgf("discarding event")

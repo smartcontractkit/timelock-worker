@@ -13,10 +13,10 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/rs/zerolog"
+	"github.com/samber/lo"
 	contracts "github.com/smartcontractkit/ccip-owner-contracts/gethwrappers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/samber/lo"
 
 	"github.com/smartcontractkit/timelock-worker/pkg/timelock"
 	timelockTests "github.com/smartcontractkit/timelock-worker/tests"
@@ -94,7 +94,15 @@ func (s *integrationTestSuite) TestTimelockWorkerDryRun() {
 			name:   "dry run enabled",
 			dryRun: true,
 			assert: func(t *testing.T, logger timelockTests.TestLogger) {
-				requireJSONSubset(s.T(), logger.LastMessage(), `{"message":"CallScheduled received"}`)
+				messages := []string{
+					`"message":"CallScheduled received"`,
+					`"message":"nop.addToScheduler"`,
+				}
+				s.Require().EventuallyWithT(func(t *assert.CollectT) {
+					for _, message := range messages {
+						s.Assert().True(containsMatchingMessage(logger, regexp.MustCompile(message)))
+					}
+				}, 2*time.Second, 100*time.Millisecond)
 			},
 		},
 		{
@@ -108,7 +116,7 @@ func (s *integrationTestSuite) TestTimelockWorkerDryRun() {
 				}
 				s.Require().EventuallyWithT(func(t *assert.CollectT) {
 					for _, message := range messages {
-						s.Assert().True(containsMatchingMessage( logger, regexp.MustCompile(message)))
+						s.Assert().True(containsMatchingMessage(logger, regexp.MustCompile(message)))
 					}
 				}, 2*time.Second, 100*time.Millisecond)
 			},
@@ -125,7 +133,7 @@ func (s *integrationTestSuite) TestTimelockWorkerDryRun() {
 			callProxyAddress, _, _, _ := s.DeployCallProxy(tctx, transactor, client, timelockAddress)
 
 			go runTimelockWorker(s.T(), tctx, gethURL, timelockAddress.String(), callProxyAddress.String(),
-				account.hexPrivateKey, big.NewInt(0), int64(60), int64(1), tt.dryRun, logger.Logger())
+				account.hexPrivateKey, big.NewInt(0), int64(1), int64(1), tt.dryRun, logger.Logger())
 
 			calls := []contracts.RBACTimelockCall{{
 				Target: common.HexToAddress("0x000000000000000000000000000000000000000"),

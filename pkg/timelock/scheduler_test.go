@@ -1,6 +1,7 @@
 package timelock
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"reflect"
@@ -16,7 +17,9 @@ import (
 )
 
 func Test_newScheduler(t *testing.T) {
-	tScheduler := newScheduler(10 * time.Second)
+	logger := zerolog.Nop()
+	execFn := func(context.Context, []*contract.TimelockCallScheduled) {}
+	tScheduler := newTestScheduler()
 
 	type args struct {
 		tick time.Duration
@@ -36,7 +39,7 @@ func Test_newScheduler(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := newScheduler(tt.args.tick)
+			got := newScheduler(tt.args.tick, &logger, execFn)
 			if reflect.TypeOf(got) != reflect.TypeOf(tt.want) {
 				t.Errorf("newScheduler() = %v, want %v", got, tt.want)
 			}
@@ -44,47 +47,45 @@ func Test_newScheduler(t *testing.T) {
 	}
 }
 
-func TestWorker_updateSchedulerDelay(t *testing.T) {
-	testWorker := newTestTimelockWorker(t, testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey,
-		testFromBlock, int64(testPollPeriod), int64(testEventListenerPollPeriod), testDryRun, testLogger)
+func Test_scheduler_updateSchedulerDelay(t *testing.T) {
+	tScheduler := newTestScheduler()
 
 	// Should never fail
-	testWorker.updateSchedulerDelay(1 * time.Second)
-	testWorker.updateSchedulerDelay(-1 * time.Second)
-	testWorker.updateSchedulerDelay(0 * time.Second)
+	tScheduler.updateSchedulerDelay(1 * time.Second)
+	tScheduler.updateSchedulerDelay(-1 * time.Second)
+	tScheduler.updateSchedulerDelay(0 * time.Second)
 }
 
-func TestWorker_isSchedulerBusy(t *testing.T) {
-	testWorker := newTestTimelockWorker(t, testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey,
-		testFromBlock, int64(testPollPeriod), int64(testEventListenerPollPeriod), testDryRun, testLogger)
+func Test_scheduler_isSchedulerBusy(t *testing.T) {
+	tScheduler := newTestScheduler()
 
-	isBusy := testWorker.isSchedulerBusy()
+	isBusy := tScheduler.isSchedulerBusy()
 	assert.Equal(t, false, isBusy, "scheduler should be busy by default")
 
-	testWorker.setSchedulerBusy()
-	isBusy = testWorker.isSchedulerBusy()
+	tScheduler.setSchedulerBusy()
+	isBusy = tScheduler.isSchedulerBusy()
 	assert.Equal(t, true, isBusy, "scheduler should be busy after setSchedulerBusy()")
 
-	testWorker.setSchedulerFree()
-	isBusy = testWorker.isSchedulerBusy()
+	tScheduler.setSchedulerFree()
+	isBusy = tScheduler.isSchedulerBusy()
 	assert.Equal(t, false, isBusy, "scheduler shouldn't be busy after setSchedulerFree()")
 }
 
-func TestWorker_setSchedulerBusy(t *testing.T) {
-	testWorker := newTestTimelockWorker(t, testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey,
-		testFromBlock, int64(testPollPeriod), int64(testEventListenerPollPeriod), testDryRun, testLogger)
+func Test_scheduler_setSchedulerBusy(t *testing.T) {
+	tScheduler := newTestScheduler()
 
-	testWorker.setSchedulerBusy()
-	isBusy := testWorker.isSchedulerBusy()
+	tScheduler.setSchedulerBusy()
+	isBusy := tScheduler.isSchedulerBusy()
 	assert.Equal(t, true, isBusy, "scheduler should be busy after setSchedulerBusy()")
 }
 
-func TestWorker_setSchedulerFree(t *testing.T) {
-	testWorker := newTestTimelockWorker(t, testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey,
-		testFromBlock, int64(testPollPeriod), int64(testEventListenerPollPeriod), testDryRun, testLogger)
+func Test_scheduler_setSchedulerFree(t *testing.T) {
+	logger := zerolog.Nop()
+	execFn := func(context.Context, []*contract.TimelockCallScheduled) {}
+	tScheduler := newScheduler(10 * time.Second, &logger, execFn)
 
-	testWorker.setSchedulerFree()
-	isBusy := testWorker.isSchedulerBusy()
+	tScheduler.setSchedulerFree()
+	isBusy := tScheduler.isSchedulerBusy()
 	assert.Equal(t, false, isBusy, "scheduler shouldn't be busy after setSchedulerFree()")
 }
 
@@ -92,7 +93,6 @@ func TestWorker_setSchedulerFree(t *testing.T) {
 func Test_dumpOperationStore(t *testing.T) {
 	var (
 		fName         = logPath + logFile
-		logger        = zerolog.Nop()
 		earliestBlock = 42
 		opKeys        = generateOpKeys(t, []string{"1", "2"})
 
@@ -117,11 +117,9 @@ func Test_dumpOperationStore(t *testing.T) {
 			opKeys[1]: {following},
 		}
 
-		worker = &Worker{
-			logger: &logger,
-			scheduler: scheduler{
-				store: store,
-			},
+		scheduler = scheduler{
+			store: store,
+			logger: func(l zerolog.Logger) *zerolog.Logger { return &l }(zerolog.Nop()),
 		}
 	)
 
@@ -139,7 +137,7 @@ func Test_dumpOperationStore(t *testing.T) {
 	wantPrefix := fmt.Sprintf("Process stopped at %v\n", nowFunc().In(time.UTC))
 
 	// Write the store to the file.
-	worker.dumpOperationStore(nowFunc)
+	scheduler.dumpOperationStore(nowFunc)
 
 	// Read the file and compare the contents.
 	gotRead, err := os.ReadFile(fName)
@@ -151,6 +149,14 @@ func Test_dumpOperationStore(t *testing.T) {
 	wantRead = append(wantRead, []byte(toEarliestRecord(earliest))...)
 	wantRead = append(wantRead, []byte(toSubsequentRecord(following))...)
 	assert.Equal(t, wantRead, gotRead)
+}
+
+// ----- helpers -----
+
+func newTestScheduler() *scheduler {
+	logger := zerolog.Nop()
+	execFn := func(context.Context, []*contract.TimelockCallScheduled) {}
+	return newScheduler(10 * time.Second, &logger, execFn)
 }
 
 // generateOpKeys generates a slice of operation keys from a slice of strings.
