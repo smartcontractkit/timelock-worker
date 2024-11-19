@@ -2,8 +2,6 @@ run:
   timeout: 10m
   tests: false
   modules-download-mode: readonly
-output:
-  format: github-actions
 linters:
   disable-all: true
   enable:
@@ -12,13 +10,13 @@ linters:
     - bodyclose
     - containedctx
     - contextcheck
+    - copyloopvar
     - dogsled
     - dupl
     - errcheck
     - errname
     - errorlint
     - exhaustive
-    - exportloopref
     - gochecknoinits
     - godot
     - gofmt
@@ -45,11 +43,6 @@ linters:
     - unconvert
     - unparam
     - whitespace
-  issues:
-    max-issues-per-linter: 0
-    max-same-issues: 0
-  severity:
-    default-severity: error
 issues:
   exclude-dirs:
   - pkg/contracts
