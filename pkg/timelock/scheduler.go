@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -159,11 +160,11 @@ func (tw *Worker) dumpOperationStore(now func() time.Time) {
 	tw.logger.Info().Msgf("generating logs with pending operations in %s", logPath+logFile)
 
 	// Get the earliest block from all the operations stored by sorting them.
-	blocks := make([]int, 0)
+	blocks := make([]uint64, 0)
 	for _, op := range tw.store {
-		blocks = append(blocks, int(op[0].Raw.BlockNumber))
+		blocks = append(blocks, op[0].Raw.BlockNumber)
 	}
-	sort.Ints(blocks)
+	slices.Sort(blocks)
 
 	w := bufio.NewWriter(f)
 
@@ -173,7 +174,7 @@ func (tw *Worker) dumpOperationStore(now func() time.Time) {
 }
 
 type storeRecord struct {
-	Block int
+	Block uint64
 	OpKey operationKey
 	Ops   []*contract.TimelockCallScheduled
 }
@@ -183,7 +184,7 @@ func writeOperationStore(
 	w io.Writer,
 	logger *zerolog.Logger,
 	store map[operationKey][]*contract.TimelockCallScheduled,
-	earliest int,
+	earliest uint64,
 	now func() time.Time,
 ) {
 	var (
@@ -204,7 +205,7 @@ func writeOperationStore(
 			continue
 		}
 		storeRecords = append(storeRecords, storeRecord{
-			Block: int(ops[0].Raw.BlockNumber),
+			Block: ops[0].Raw.BlockNumber,
 			OpKey: opID,
 			Ops:   ops,
 		})
@@ -216,7 +217,7 @@ func writeOperationStore(
 	for _, record := range storeRecords {
 		op = record.Ops[0]
 
-		if int(op.Raw.BlockNumber) == earliest {
+		if op.Raw.BlockNumber == earliest {
 			logLine := fmt.Sprintf("earliest unexecuted CallSchedule. Use this block number when "+
 				"spinning up the service again, with the environment variable or in timelock.env as FROM_BLOCK=%v, "+
 				"or using the flag --from-block=%v", op.Raw.BlockNumber, op.Raw.BlockNumber)

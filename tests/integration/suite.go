@@ -48,7 +48,7 @@ func (s *integrationTestSuite) Run(name string, subtestFunc func(t *testing.T)) 
 
 func (s *integrationTestSuite) KeyedTransactor(privateKey *ecdsa.PrivateKey, chainID *big.Int) *bind.TransactOpts {
 	if chainID == nil {
-		chainID = big.NewInt(int64(s.GethContainer.ChainID))
+		chainID = new(big.Int).SetUint64(s.GethContainer.ChainID)
 	}
 
 	transactor, err := bind.NewKeyedTransactorWithChainID(privateKey, chainID)
