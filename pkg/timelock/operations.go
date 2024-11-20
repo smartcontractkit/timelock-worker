@@ -11,6 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	chainselectors "github.com/smartcontractkit/chain-selectors"
+
 	"github.com/smartcontractkit/timelock-worker/pkg/timelock/contract"
 )
 
@@ -45,7 +46,7 @@ func (tw *Worker) executeCallSchedule(ctx context.Context, c *contract.TimelockT
 	}
 
 	// Compute all the different calls from each specific CallSchedule.
-	var calls []contract.RBACTimelockCall
+	calls := make([]contract.RBACTimelockCall, 0, len(cs))
 	for _, op := range cs {
 		calls = append(calls, contract.RBACTimelockCall{
 			Target: op.Target,

@@ -7,8 +7,8 @@ import (
 )
 
 var (
-	Version = "development" //nolint: gochecknoglobals
-	Commit  = "0.0.0"       //nolint: gochecknoglobals
+	Version = "development" //nolint:gochecknoglobals
+	Commit  = "0.0.0"       //nolint:gochecknoglobals
 )
 
 func versionCommand() *cobra.Command {

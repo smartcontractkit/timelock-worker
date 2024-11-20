@@ -1,7 +1,7 @@
 package timelock
 
 import (
-	"fmt"
+	"log"
 	"net/http"
 	"sync/atomic"
 	"time"
@@ -61,7 +61,7 @@ func respond(status HealthStatus, w http.ResponseWriter) {
 	}
 
 	if err != nil {
-		fmt.Println("Error writing response:", err)
+		log.Println("Error writing response:", err)
 	}
 }
 

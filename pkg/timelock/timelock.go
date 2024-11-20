@@ -202,9 +202,9 @@ func (tw *Worker) setupFilterQuery(fromBlock *big.Int) ethereum.FilterQuery {
 func (tw *Worker) retrieveNewLogs(ctx context.Context) (<-chan struct{}, <-chan types.Log, error) {
 	if tw.ethClient.Client().SupportsSubscriptions() {
 		return tw.subscribeNewLogs(ctx)
-	} else {
-		return tw.pollNewLogs(ctx)
 	}
+
+	return tw.pollNewLogs(ctx)
 }
 
 // subscribeNewLogs subscribes to a Timelock contract and emit logs through the channel it returns.
@@ -244,6 +244,7 @@ func (tw *Worker) subscribeNewLogs(ctx context.Context) (<-chan struct{}, <-chan
 							tw.logger.Info().Msg("subscription successfully recreated.")
 							SetReadyStatus(HealthStatusOK)
 							success = true
+
 							break
 						}
 
@@ -259,6 +260,7 @@ func (tw *Worker) subscribeNewLogs(ctx context.Context) (<-chan struct{}, <-chan
 			case <-ctx.Done():
 				tw.logger.Debug().Msgf("shutting down subscription")
 				SetReadyStatus(HealthStatusError)
+
 				return
 			}
 		}
@@ -290,6 +292,7 @@ func (tw *Worker) pollNewLogs(ctx context.Context) (<-chan struct{}, <-chan type
 			case <-ctx.Done():
 				tw.logger.Debug().Msg("context done; stopping pollNewLogs")
 				SetReadyStatus(HealthStatusError)
+
 				return
 			}
 		}
@@ -311,6 +314,7 @@ func (tw *Worker) retrieveHistoricalLogs(ctx context.Context) (<-chan struct{}, 
 		tw.logger.Debug().Msgf("node does not support subscriptions; skipping historical log")
 		close(done)
 		close(logCh)
+
 		return done, logCh, nil
 	}
 
@@ -347,6 +351,7 @@ func (tw *Worker) fetchAndDispatchLogs(ctx context.Context, logCh chan types.Log
 	if err != nil {
 		tw.logger.Error().Err(err).Msg("unable to fetch logs from eth client")
 		SetReadyStatus(HealthStatusError) // FIXME(gustavogama-cll): wait for N errors before setting status
+
 		return lastBlock
 	}
 	tw.logger.Debug().Msgf("fetched %d log entries starting from block %d", len(logs), lastBlock)
@@ -390,6 +395,7 @@ func (tw *Worker) processLogs(ctx context.Context, oldLog, newLog <-chan types.L
 				if !open {
 					close(newDone)
 					newLog = nil
+
 					continue
 				}
 
@@ -401,6 +407,7 @@ func (tw *Worker) processLogs(ctx context.Context, oldLog, newLog <-chan types.L
 				if !open {
 					close(oldDone)
 					oldLog = nil
+
 					continue
 				}
 
@@ -411,6 +418,7 @@ func (tw *Worker) processLogs(ctx context.Context, oldLog, newLog <-chan types.L
 			case <-ctxwc.Done():
 				tw.logger.Info().Msgf("cancelled processing logs")
 				SetReadyStatus(HealthStatusError)
+
 				return
 			}
 		}

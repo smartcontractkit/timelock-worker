@@ -4,9 +4,10 @@ import (
 	"context"
 	"math/big"
 
+	"github.com/spf13/cobra"
+
 	"github.com/smartcontractkit/timelock-worker/pkg/cli"
 	"github.com/smartcontractkit/timelock-worker/pkg/timelock"
-	"github.com/spf13/cobra"
 )
 
 func startCommand() *cobra.Command {

@@ -4,9 +4,10 @@ import (
 	"os"
 
 	"github.com/rs/zerolog"
-	"github.com/smartcontractkit/timelock-worker/pkg/logger"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+
+	"github.com/smartcontractkit/timelock-worker/pkg/logger"
 )
 
 var (
