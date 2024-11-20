@@ -123,7 +123,7 @@ func (s *integrationTestSuite) TestTimelockWorkerDryRun() {
 		},
 	}
 	for _, tt := range tests {
-		s.Run(tt.name, func(t *testing.T) {
+		s.Run(tt.name, func() {
 			tctx, cancel := context.WithCancel(ctx)
 			defer cancel()
 
@@ -142,7 +142,7 @@ func (s *integrationTestSuite) TestTimelockWorkerDryRun() {
 			}}
 			s.ScheduleBatch(tctx, transactor, client, timelockContract, calls, [32]byte{}, [32]byte{}, big.NewInt(1))
 
-			tt.assert(t, logger)
+			tt.assert(s.T(), logger)
 		})
 	}
 }

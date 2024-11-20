@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"slices"
 	"sort"
@@ -63,49 +64,24 @@ func newScheduler(tick time.Duration, logger *zerolog.Logger, executeFn executeF
 // call them this way so no process is allowd to add/delete from
 // the store, which could cause race conditions like adding/deleting
 // while the operation is being executed.
-func (tw *scheduler) runScheduler(ctx context.Context) <-chan struct{} {
+func (s *scheduler) runScheduler(ctx context.Context) <-chan struct{} {
 	done := make(chan struct{})
 
 	go func() {
 		defer close(done)
 		for {
 			select {
-			case <-tw.ticker.C:
-				if len(tw.store) <= 0 {
-					tw.logger.Debug().Msgf("new scheduler tick: no operations in store")
-					continue
-				}
+			case <-s.ticker.C:
+				s.executeOperations(ctx)
 
-				if !tw.isSchedulerBusy() {
-					tw.logger.Debug().Msgf("new scheduler tick: operations in store")
-					tw.setSchedulerBusy()
-					for _, op := range tw.store {
-						tw.executeFn(ctx, op)
-					}
-					tw.setSchedulerFree()
-				} else {
-					tw.logger.Debug().Msgf("new scheduler tick: scheduler is busy, skipping until next tick")
-				}
+			case op := <-s.add:
+				s.addOperation(op)
 
-			case op := <-tw.add:
-				tw.mu.Lock()
-				if len(tw.store[op.Id]) <= int(op.Index.Int64()) {
-					tw.store[op.Id] = append(tw.store[op.Id], op)
-				}
-				tw.store[op.Id][op.Index.Int64()] = op
-				tw.mu.Unlock()
-				tw.logger.Debug().Msgf("scheduled operation: %x", op.Id)
-
-			case op := <-tw.del:
-				if _, ok := tw.store[op]; ok {
-					tw.mu.Lock()
-					delete(tw.store, op)
-					tw.mu.Unlock()
-					tw.logger.Debug().Msgf("de-scheduled operation: %x", op)
-				}
+			case opKey := <-s.del:
+				s.delOperation(opKey)
 
 			case <-ctx.Done():
-				tw.logger.Debug().Msgf("shutting down scheduler")
+				s.logger.Debug().Msgf("shutting down scheduler")
 				return
 			}
 		}
@@ -114,79 +90,119 @@ func (tw *scheduler) runScheduler(ctx context.Context) <-chan struct{} {
 	return done
 }
 
-// updateSchedulerDelay updates the internal ticker delay, so it can be reconfigured while running.
-func (tw *scheduler) updateSchedulerDelay(t time.Duration) {
-	if t <= 0 {
-		tw.logger.Debug().Msgf("internal min delay not changed, invalid duration: %v", t.String())
+func (s *scheduler) executeOperations(ctx context.Context) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if len(s.store) <= 0 {
+		s.logger.Debug().Msgf("scheduler.executingOperations: no operations in store")
 		return
 	}
 
-	tw.ticker.Reset(t)
-	tw.logger.Debug().Msgf("internal min delay changed to %v", t.String())
+	if s.busy {
+		s.logger.Debug().Msgf("scheduler.executeOperations: scheduler is busy, skipping until next tick")
+		return
+	}
+	s.busy = true
+
+	store := maps.Clone(s.store)
+	go func() {
+		s.logger.Debug().Msgf("scheduler.executeOperations: %d operations in store", len(store))
+		for _, op := range store {
+			s.executeFn(ctx, op)
+		}
+
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.busy = false
+	}()
+}
+
+func (s *scheduler) addOperation(op *contract.TimelockCallScheduled) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if len(s.store[op.Id]) <= int(op.Index.Int64()) {
+		s.store[op.Id] = append(s.store[op.Id], op)
+	}
+	s.store[op.Id][op.Index.Int64()] = op
+	s.logger.Debug().Msgf("scheduled operation: %x", op.Id)
+}
+
+func (s *scheduler) delOperation(key operationKey) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, ok := s.store[key]
+	if !ok {
+		s.logger.Warn().Msgf("operation not found in scheduler: %x", key)
+		return
+	}
+
+	delete(s.store, key)
+	s.logger.Debug().Msgf("de-scheduled operation: %x", key)
+}
+
+// updateSchedulerDelay updates the internal ticker delay, so it can be reconfigured while running.
+func (s *scheduler) updateSchedulerDelay(t time.Duration) {
+	if t <= 0 {
+		s.logger.Debug().Msgf("internal min delay not changed, invalid duration: %v", t.String())
+		return
+	}
+
+	s.ticker.Reset(t)
+	s.logger.Debug().Msgf("internal min delay changed to %v", t.String())
 }
 
 // addToScheduler adds a new CallSchedule operation safely to the store.
-func (tw *scheduler) addToScheduler(op *contract.TimelockCallScheduled) {
-	tw.mu.Lock()
-	defer tw.mu.Unlock()
-	tw.logger.Debug().Msgf("scheduling operation: %x", op.Id)
-	tw.add <- op
-	tw.logger.Debug().Msgf("operations in scheduler: %v", len(tw.store))
+func (s *scheduler) addToScheduler(op *contract.TimelockCallScheduled) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.logger.Debug().Msgf("scheduling operation: %x", op.Id)
+	s.add <- op
+	s.logger.Debug().Msgf("operations in scheduler: %v", len(s.store))
 }
 
 // delFromScheduler deletes an operation safely from the store.
-func (tw *scheduler) delFromScheduler(op operationKey) {
-	tw.mu.Lock()
-	defer tw.mu.Unlock()
-	tw.logger.Debug().Msgf("de-scheduling operation: %v", op)
-	tw.del <- op
-	tw.logger.Debug().Msgf("operations in scheduler: %v", len(tw.store))
-}
+func (s *scheduler) delFromScheduler(op operationKey) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-func (tw *scheduler) setSchedulerBusy() {
-	tw.logger.Debug().Msgf("setting scheduler busy")
-	tw.mu.Lock()
-	tw.busy = true
-	tw.mu.Unlock()
-}
-
-func (tw *scheduler) setSchedulerFree() {
-	tw.logger.Debug().Msgf("setting scheduler free")
-	tw.mu.Lock()
-	tw.busy = false
-	tw.mu.Unlock()
-}
-
-func (tw *scheduler) isSchedulerBusy() bool {
-	return tw.busy
+	s.logger.Debug().Msgf("de-scheduling operation: %x", op)
+	s.del <- op
+	s.logger.Debug().Msgf("operations in scheduler: %v", len(s.store))
 }
 
 // dumpOperationStore dumps to the logger and to the log file the current scheduled unexecuted operations.
 // maps in go don't guarantee order, so that's why we have to find the earliest block.
-func (tw *scheduler) dumpOperationStore(now func() time.Time) {
-	if len(tw.store) <= 0 {
-		tw.logger.Info().Msgf("no operations to dump")
+func (s *scheduler) dumpOperationStore(now func() time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if len(s.store) <= 0 {
+		s.logger.Info().Msgf("no operations to dump")
 		return
 	}
 
 	f, err := os.Create(logPath + logFile)
 	if err != nil {
-		tw.logger.Fatal().Msgf("unable to create %s: %s", logPath+logFile, err.Error())
+		s.logger.Fatal().Msgf("unable to create %s: %s", logPath+logFile, err.Error())
 	}
 	defer f.Close()
 
-	tw.logger.Info().Msgf("generating logs with pending operations in %s", logPath+logFile)
+	s.logger.Info().Msgf("generating logs with pending operations in %s", logPath+logFile)
 
 	// Get the earliest block from all the operations stored by sorting them.
 	blocks := make([]uint64, 0)
-	for _, op := range tw.store {
+	for _, op := range s.store {
 		blocks = append(blocks, op[0].Raw.BlockNumber)
 	}
 	slices.Sort(blocks)
 
 	w := bufio.NewWriter(f)
 
-	writeOperationStore(w, tw.logger, tw.store, blocks[0], now)
+	writeOperationStore(w, s.logger, s.store, blocks[0], now)
 
 	w.Flush()
 }

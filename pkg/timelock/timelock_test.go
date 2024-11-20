@@ -32,6 +32,8 @@ func newTestTimelockWorker(
 }
 
 func TestNewTimelockWorker(t *testing.T) {
+	t.Parallel()
+
 	svr := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, req *http.Request) {
 		writer.Write([]byte("Ok"))
 	}))
@@ -112,6 +114,8 @@ func TestNewTimelockWorker(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			args := defaultArgs
 			tt.setup(&args)
 
@@ -130,6 +134,8 @@ func TestNewTimelockWorker(t *testing.T) {
 }
 
 func TestWorker_startLog(t *testing.T) {
+	t.Parallel()
+
 	testWorker := newTestTimelockWorker(t, testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey,
 		testFromBlock, int64(testPollPeriod), int64(testEventListenerPollPeriod), testDryRun, testLogger)
 

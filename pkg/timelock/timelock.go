@@ -187,7 +187,9 @@ func (tw *Worker) Listen(ctx context.Context) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 
+	tw.logger.Info().Msg("waiting for all channels")
 	<-isclosed.All(shutdownCtx, schedulingDone, historyDone, newDone, processingDone) //nolint:contextcheck
+	tw.logger.Info().Msg("waited")
 
 	return nil
 }
@@ -489,6 +491,8 @@ func (tw *Worker) handleLog(ctx context.Context, log types.Log) error {
 		if isDone(ctx, tw.contract, cs.Id) {
 			tw.logger.Info().Hex(fieldTXHash, cs.Raw.TxHash[:]).Uint64(fieldBlockNumber, cs.Raw.BlockNumber).Msgf("%s received, cancelling operation", eventCancelled)
 			tw.scheduler.delFromScheduler(cs.Id)
+		} else {
+			tw.logger.Info().Hex(fieldTXHash, cs.Raw.TxHash[:]).Uint64(fieldBlockNumber, cs.Raw.BlockNumber).Msgf("%s received, but won't cancel because operation is not done", eventCancelled)
 		}
 	default:
 		tw.logger.Info().Str("event", event.Name).Msgf("discarding event")
