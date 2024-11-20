@@ -45,10 +45,6 @@ build: clean
 	@echo "\n\t$(C_GREEN)# Build binary $(BINARY)$(C_END)"
 	go build -trimpath -ldflags $(LDFLAGS) -o $(BIN_FOLDER)/$(BINARY) main.go
 
-.PHONY: lint
-lint:
-	$(SCRIPTS_F)/golangci_html_report.sh
-
 .PHONY: release
 release:
 	@echo "\n\t$(C_GREEN)# Creating release $(VERSION) $(C_END)"

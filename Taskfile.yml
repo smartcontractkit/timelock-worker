@@ -1,0 +1,13 @@
+# https://taskfile.dev
+
+version: "3"
+
+includes:
+  install:
+    taskfile: ./taskfiles/install/Taskfile.yml
+
+  lint:
+    taskfile: ./taskfiles/lint/Taskfile.yml
+
+  test:
+    taskfile: ./taskfiles/test/Taskfile.yml
