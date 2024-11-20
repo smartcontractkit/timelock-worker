@@ -4,20 +4,20 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"math/big"
-	"testing"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
+	contracts "github.com/smartcontractkit/ccip-owner-contracts/gethwrappers"
 	"github.com/stretchr/testify/suite"
 
-	contracts "github.com/smartcontractkit/ccip-owner-contracts/gethwrappers"
 	"github.com/smartcontractkit/timelock-worker/tests/containers"
 )
 
 type integrationTestSuite struct {
 	suite.Suite
+
 	GethContainer *containers.GethContainer
 	Ctx           context.Context //nolint:containedctx
 }
@@ -40,10 +40,6 @@ func (s *integrationTestSuite) Log(format string) {
 
 func (s *integrationTestSuite) Logf(format string, args ...any) {
 	s.T().Logf(format, args...)
-}
-
-func (s *integrationTestSuite) Run(name string, subtestFunc func(t *testing.T)) bool {
-	return s.T().Run(name, subtestFunc)
 }
 
 func (s *integrationTestSuite) KeyedTransactor(privateKey *ecdsa.PrivateKey, chainID *big.Int) *bind.TransactOpts {
@@ -80,9 +76,10 @@ func (s *integrationTestSuite) DeployTimelock(
 
 	receipt, err := bind.WaitMined(ctx, client, transaction)
 	s.Require().NoError(err)
-	s.Require().Equal(receipt.Status, types.ReceiptStatusSuccessful)
+	s.Require().Equal(types.ReceiptStatusSuccessful, receipt.Status)
 
 	s.Logf("timelock address: %v; deploy transaction: %v", address, transaction.Hash())
+
 	return address, transaction, receipt, contract
 }
 
@@ -97,9 +94,10 @@ func (s *integrationTestSuite) DeployCallProxy(
 
 	receipt, err := bind.WaitMined(ctx, client, transaction)
 	s.Require().NoError(err)
-	s.Require().Equal(receipt.Status, types.ReceiptStatusSuccessful)
+	s.Require().Equal(types.ReceiptStatusSuccessful, receipt.Status)
 
 	s.Logf("call proxy address: %v; deploy transaction: %v", address, transaction.Hash())
+
 	return address, transaction, receipt, contract
 }
 
@@ -114,8 +112,9 @@ func (s *integrationTestSuite) UpdateDelay(
 
 	receipt, err := bind.WaitMined(ctx, client, transaction)
 	s.Require().NoError(err)
-	s.Require().Equal(receipt.Status, types.ReceiptStatusSuccessful)
+	s.Require().Equal(types.ReceiptStatusSuccessful, receipt.Status)
 
 	s.Logf("update delay transaction: %v", transaction.Hash())
+
 	return transaction, receipt
 }

@@ -27,4 +27,8 @@ testdata/
 # env file
 *.env
 
+# Editor config directories
+.idea/
+.vscode/
+
 

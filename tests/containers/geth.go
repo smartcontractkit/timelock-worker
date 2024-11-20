@@ -76,6 +76,7 @@ func (g *GethContainer) HTTPConnStr(t *testing.T, ctx context.Context) string {
 	t.Helper()
 	connStr, err := g.Container.PortEndpoint(ctx, nat.Port(httpPort), "http")
 	require.NoError(t, err)
+
 	return connStr
 }
 
@@ -84,6 +85,7 @@ func (g *GethContainer) WSConnStr(t *testing.T, ctx context.Context) string {
 	t.Helper()
 	connStr, err := g.Container.PortEndpoint(ctx, nat.Port(wsPort), "ws")
 	require.NoError(t, err)
+
 	return connStr
 }
 
@@ -115,6 +117,7 @@ func (g *GethContainer) CreateAccount(
 		if strings.Contains(strings.ToLower(output), strings.ToLower(address)) {
 			return nil
 		}
+
 		return fmt.Errorf("new account (%s) is not found in geth instance: (%s)", address, output)
 	}
 	_, _, err = execUntil(ctx, g.Container, listAccountsCommand, checkAccountsOutput,
@@ -146,6 +149,7 @@ func (g *GethContainer) CreateAccount(
 		if strings.HasSuffix(output, expectedBalance+"\n") {
 			return nil
 		}
+
 		return fmt.Errorf("command output does not contain expected balance: %v", output)
 	}
 	_, _, err = execUntil(ctx, g.Container, getBalanceCommand, checkBalanceOutput,
@@ -158,5 +162,6 @@ func (g *GethContainer) CreateAccount(
 	if !ok {
 		return big.Int{}, fmt.Errorf("unable to convert balance to a number: %v", expectedBalance)
 	}
+
 	return *expectedBalanceBigInt, nil
 }

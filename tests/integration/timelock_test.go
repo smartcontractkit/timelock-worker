@@ -41,7 +41,7 @@ func (s *integrationTestSuite) TestTimelockWorkerListen() {
 		{name: "websocket connection", url: s.GethContainer.WSConnStr(s.T(), ctx)},
 	}
 	for _, tt := range tests {
-		s.Run(tt.name, func(t *testing.T) {
+		s.Run(tt.name, func() {
 			sctx, cancel := context.WithCancel(ctx)
 			defer cancel()
 

@@ -3,46 +3,75 @@ run:
   tests: false
   modules-download-mode: readonly
 linters:
-  disable-all: true
+  disable-all: true # Consider removing this to enable all default linters
   enable:
     - asasalint
+    - asciicheck
     - bidichk
     - bodyclose
     - containedctx
     - contextcheck
     - copyloopvar
+    - decorder
     - dogsled
-    - dupl
-    - errcheck
+    - dupword
+    - durationcheck
+    - errcheck # Default linter
+    - errchkjson
     - errname
     - errorlint
     - exhaustive
+    - fatcontext
+    - forbidigo
     - gochecknoinits
+    - goconst
     - godot
     - gofmt
+    - goimports
     - goprintffuncname
     - gosec
-    - gosimple
-    - govet
-    - ineffassign
+    - gosimple # Default linter
+    - govet # Default linter
+    - ineffassign # Default linter
+    - intrange
+    - loggercheck
     - makezero
     - misspell
+    # - mnd
     - nakedret
     - nilerr
     - nilnil
+    - nlreturn
     - noctx
     - nolintlint
+    - paralleltest
+    - prealloc
     - predeclared
     - promlinter
-    - staticcheck
+    - reassign
+    # - revive
+    - staticcheck # Default linter
+    - testifylint
     - tenv
-    - testpackage
     - thelper
     - tparallel
-    - typecheck
     - unconvert
     - unparam
+    - usestdlibvars
+    - wastedassign
     - whitespace
+linters-settings:
+  goconst:
+    min-len: 5
+  goimports:
+    local-prefixes: github.com/smartcontractkit/timelock-worker
+  nlreturn:
+    block-size: 2
 issues:
   exclude-dirs:
-  - pkg/contracts
+    # Exclude the directory containing generated geth bindings
+    - pkg/contracts
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - unparam # No need to check for unused parameters in tests, since there are often false positives

@@ -9,12 +9,12 @@ import (
 )
 
 var (
-	once   sync.Once       //nolint: gochecknoglobals
-	logger *zerolog.Logger //nolint: gochecknoglobals
+	once   sync.Once       //nolint:gochecknoglobals
+	logger *zerolog.Logger //nolint:gochecknoglobals
 )
 
 // humanConsoleWriter configures the human-readable output.
-var humanConsoleWriter = zerolog.ConsoleWriter{ //nolint: gochecknoglobals
+var humanConsoleWriter = zerolog.ConsoleWriter{ //nolint:gochecknoglobals
 	Out:        os.Stdout,
 	TimeFormat: time.RFC3339,
 }

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+
 	"github.com/smartcontractkit/timelock-worker/pkg/timelock/contract"
 )
 
@@ -240,6 +241,7 @@ func toEarliestRecord(op *contract.TimelockCallScheduled) string {
 	tmpl := "Earliest CallSchedule pending ID: %x\tBlock Number: %v\n" +
 		"\tUse this block number to ensure all pending operations are properly executed.  " +
 		"\tSet it as environment variable or in timelock.env with FROM_BLOCK=%v, or as a flag with --from-block=%v\n"
+
 	return fmt.Sprintf(tmpl, op.Id, op.Raw.BlockNumber, op.Raw.BlockNumber, op.Raw.BlockNumber)
 }
 

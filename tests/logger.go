@@ -29,6 +29,7 @@ func NewTestLogger(writer io.Writer) TestLogger {
 		mutex:    new(sync.Mutex),
 	}
 	logger.zerologger = zerolog.New(logger)
+
 	return logger
 }
 
@@ -41,6 +42,7 @@ func (tl testLogger) Write(p []byte) (n int, err error) {
 	defer tl.mutex.Unlock()
 
 	*tl.messages = append(*tl.messages, string(p))
+
 	return tl.writer.Write(p)
 }
 
