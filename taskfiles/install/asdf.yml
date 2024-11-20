@@ -1,0 +1,14 @@
+version: '3'
+
+tasks:
+  install:
+    internal: true
+    desc: Installs the tools defined in asdf
+    dir: '{{.USER_WORKING_DIR}}'
+    cmds:
+      # Add all the plugins defined in .tool-versions by reading the first column for the plugin
+      # name and adding it to asdf
+      - awk '{print $1}' .tool-versions | xargs -I _ asdf plugin add _
+
+      # Install all the tools defined in .tool-versions
+      - asdf install

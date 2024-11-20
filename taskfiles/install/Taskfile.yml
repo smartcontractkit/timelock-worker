@@ -1,0 +1,11 @@
+version: '3'
+
+includes:
+  asdf:
+    taskfile: ./asdf.yml
+
+tasks:
+  tools:
+    desc: Installs development tools
+    cmds:
+      - task: asdf:install

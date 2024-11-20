@@ -1,0 +1,18 @@
+version: '3'
+
+tasks:
+  default:
+    desc: "Run the entire test suite"
+    cmds:
+      - go test {{.CLI_ARGS}} ./...
+
+  coverage:
+    desc: "Run the entire test suite with coverage"
+    cmds:
+      - go test -coverprofile=coverage.out -covermode count ./...
+      - go tool cover -html=coverage.out
+
+  race:
+    desc: "Run the entire test suite with race detection"
+    cmds:
+      - go test -race ./...

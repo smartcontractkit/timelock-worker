@@ -1,0 +1,15 @@
+version: '3'
+
+tasks:
+  default:
+    desc: "Run Go lint checks"
+    cmds:
+      - golangci-lint run
+  fix:
+    desc: "Fix Go lint issues"
+    cmds:
+      - |
+        echo "Fixing Go lint issues..."
+        gofmt -s -w .
+        goimports -w .
+        golangci-lint run --fix
