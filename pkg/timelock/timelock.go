@@ -36,9 +36,10 @@ type Worker struct {
 	fromBlock          *big.Int
 	pollPeriod         int64
 	listenerPollPeriod int64
+	dryRun             bool
 	logger             *zerolog.Logger
 	privateKey         *ecdsa.PrivateKey
-	scheduler
+	scheduler          Scheduler
 }
 
 var httpSchemes = []string{"http", "https"}
@@ -49,7 +50,7 @@ var validNodeUrlSchemes = []string{"http", "https", "ws", "wss"}
 // It's a singleton, so further executions will retrieve the same timelockWorker.
 func NewTimelockWorker(
 	nodeURL, timelockAddress, callProxyAddress, privateKey string, fromBlock *big.Int,
-	pollPeriod int64, listenerPollPeriod int64, logger *zerolog.Logger,
+	pollPeriod int64, listenerPollPeriod int64, dryRun bool, logger *zerolog.Logger,
 ) (*Worker, error) {
 	// Sanity check on each provided variable before allocating more resources.
 	u, err := url.ParseRequestURI(nodeURL)
@@ -126,9 +127,15 @@ func NewTimelockWorker(
 		fromBlock:          fromBlock,
 		pollPeriod:         pollPeriod,
 		listenerPollPeriod: listenerPollPeriod,
+		dryRun:             dryRun,
 		logger:             logger,
 		privateKey:         privateKeyECDSA,
-		scheduler:          *newScheduler(time.Duration(pollPeriod) * time.Second),
+	}
+
+	if dryRun {
+		tWorker.scheduler = newNopScheduler(logger)
+	} else {
+		tWorker.scheduler = newScheduler(time.Duration(pollPeriod)*time.Second, logger, tWorker.execute)
 	}
 
 	return tWorker, nil
@@ -143,7 +150,7 @@ func (tw *Worker) Listen(ctx context.Context) error {
 	tw.startLog()
 
 	// Run the scheduler to add/del operations in a thread-safe way.
-	schedulingDone := tw.runScheduler(ctxwc)
+	schedulingDone := tw.scheduler.runScheduler(ctxwc)
 
 	// Retrieve historical logs.
 	historyDone, historyCh, err := tw.retrieveHistoricalLogs(ctxwc)
@@ -174,7 +181,7 @@ func (tw *Worker) Listen(ctx context.Context) error {
 
 	tw.logger.Info().Msg("shutting down timelock-worker")
 	tw.logger.Info().Msg("dumping operation store")
-	tw.dumpOperationStore(time.Now)
+	tw.scheduler.dumpOperationStore(time.Now)
 
 	// Wait for all goroutines to finish.
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Second*5)
@@ -196,7 +203,7 @@ func (tw *Worker) setupFilterQuery(fromBlock *big.Int) ethereum.FilterQuery {
 // retrieveNewLogs returns a "control channel" and a "logs channels". The logs channel is where
 // new log events will be asynchronously pushed to.
 //
-// The actual retrieveal is performed by either `subscribeNewLogs`, if the node connection
+// The actual retrieval is performed by either `subscribeNewLogs`, if the node connection
 // supports subscriptions, or `pollNewLogs` otherwise. In practice, the ethclient library
 // simply checks if the given node URL is "http(s)" or not.
 func (tw *Worker) retrieveNewLogs(ctx context.Context) (<-chan struct{}, <-chan types.Log, error) {
@@ -457,7 +464,7 @@ func (tw *Worker) handleLog(ctx context.Context, log types.Log) error {
 
 		if !isDone(ctx, tw.contract, cs.Id) && isOperation(ctx, tw.contract, cs.Id) {
 			tw.logger.Info().Hex(fieldTXHash, cs.Raw.TxHash[:]).Uint64(fieldBlockNumber, cs.Raw.BlockNumber).Msgf("%s received", eventCallScheduled)
-			tw.addToScheduler(cs)
+			tw.scheduler.addToScheduler(cs)
 		}
 
 		// A CallExecuted which is in Done status should delete the task in the scheduler store.
@@ -469,7 +476,7 @@ func (tw *Worker) handleLog(ctx context.Context, log types.Log) error {
 
 		if isDone(ctx, tw.contract, cs.Id) {
 			tw.logger.Info().Hex(fieldTXHash, cs.Raw.TxHash[:]).Uint64(fieldBlockNumber, cs.Raw.BlockNumber).Msgf("%s received, skipping operation", eventCallExecuted)
-			tw.delFromScheduler(cs.Id)
+			tw.scheduler.delFromScheduler(cs.Id)
 		}
 
 		// A Cancelled which is in Done status should delete the task in the scheduler store.
@@ -481,7 +488,7 @@ func (tw *Worker) handleLog(ctx context.Context, log types.Log) error {
 
 		if isDone(ctx, tw.contract, cs.Id) {
 			tw.logger.Info().Hex(fieldTXHash, cs.Raw.TxHash[:]).Uint64(fieldBlockNumber, cs.Raw.BlockNumber).Msgf("%s received, cancelling operation", eventCancelled)
-			tw.delFromScheduler(cs.Id)
+			tw.scheduler.delFromScheduler(cs.Id)
 		}
 	default:
 		tw.logger.Info().Str("event", event.Name).Msgf("discarding event")

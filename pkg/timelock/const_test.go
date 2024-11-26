@@ -15,5 +15,6 @@ var (
 	testFromBlock               = big.NewInt(0)
 	testPollPeriod              = 5
 	testEventListenerPollPeriod = 0
+	testDryRun                  = false
 	testLogger                  = logger.Logger("info", "human")
 )

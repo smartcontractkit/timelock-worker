@@ -21,7 +21,7 @@ func Test_NewTimelockCLI(t *testing.T) {
 			name: "load from file",
 			setup: func(t *testing.T) {
 				unsetenvs(t, "NODE_URL", "TIMELOCK_ADDRESS", "CALL_PROXY_ADDRESS", "PRIVATE_KEY", "FROM_BLOCK",
-					"POLL_PERIOD", "EVENT_LISTENER_POLL_PERIOD")
+					"POLL_PERIOD", "EVENT_LISTENER_POLL_PERIOD", "DRY_RUN")
 
 				err := os.WriteFile(configFileName, []byte(string(
 					"NODE_URL=wss://goerli/test\n"+
@@ -30,7 +30,8 @@ func Test_NewTimelockCLI(t *testing.T) {
 						"PRIVATE_KEY=9876543210\n"+
 						"FROM_BLOCK=1\n"+
 						"POLL_PERIOD=2\n"+
-						"EVENT_LISTENER_POLL_PERIOD=3\n",
+						"EVENT_LISTENER_POLL_PERIOD=3\n"+
+						"DRY_RUN=true\n",
 				)), os.FileMode(0644))
 				require.NoError(t, err)
 
@@ -44,6 +45,7 @@ func Test_NewTimelockCLI(t *testing.T) {
 				FromBlock:               1,
 				PollPeriod:              2,
 				EventListenerPollPeriod: 3,
+				DryRun:                  true,
 			},
 		},
 		{
@@ -56,7 +58,8 @@ func Test_NewTimelockCLI(t *testing.T) {
 						"PRIVATE_KEY=9876543210\n"+
 						"FROM_BLOCK=1\n"+
 						"POLL_PERIOD=2\n"+
-						"EVENT_LISTENER_POLL_PERIOD=3\n",
+						"EVENT_LISTENER_POLL_PERIOD=3\n"+
+						"DRY_RUN=true\n",
 				)), os.FileMode(0644))
 				require.NoError(t, err)
 
@@ -67,6 +70,7 @@ func Test_NewTimelockCLI(t *testing.T) {
 				t.Setenv("FROM_BLOCK", "4")
 				t.Setenv("POLL_PERIOD", "5")
 				t.Setenv("EVENT_LISTENER_POLL_PERIOD", "6")
+				t.Setenv("DRY_RUN", "false")
 
 				t.Cleanup(func() { os.Remove(configFileName) })
 			},
@@ -95,6 +99,7 @@ func Test_NewTimelockCLI(t *testing.T) {
 				t.Setenv("FROM_BLOCK", "4")
 				t.Setenv("POLL_PERIOD", "5")
 				t.Setenv("EVENT_LISTENER_POLL_PERIOD", "6")
+				t.Setenv("DRY_RUN", "yes")
 
 				t.Cleanup(func() { os.Remove(configFileName) })
 			},
@@ -106,6 +111,7 @@ func Test_NewTimelockCLI(t *testing.T) {
 				FromBlock:               4,
 				PollPeriod:              5,
 				EventListenerPollPeriod: 6,
+				DryRun:                  true,
 			},
 		},
 		{

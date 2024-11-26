@@ -18,26 +18,39 @@ import (
 
 type operationKey [32]byte
 
+type Scheduler interface {
+	runScheduler(ctx context.Context) <-chan struct{}
+	addToScheduler(op *contract.TimelockCallScheduled)
+	delFromScheduler(op operationKey)
+	dumpOperationStore(now func() time.Time)
+}
+
+type executeFn func(context.Context, []*contract.TimelockCallScheduled)
+
 // Scheduler represents a scheduler with an in memory store.
 // Whenever accesing the map the mutex should be Locked, to prevent
 // any race condition.
 type scheduler struct {
-	mu     sync.Mutex
-	ticker *time.Ticker
-	add    chan *contract.TimelockCallScheduled
-	del    chan operationKey
-	store  map[operationKey][]*contract.TimelockCallScheduled
-	busy   bool
+	mu        sync.Mutex
+	ticker    *time.Ticker
+	add       chan *contract.TimelockCallScheduled
+	del       chan operationKey
+	store     map[operationKey][]*contract.TimelockCallScheduled
+	busy      bool
+	logger    *zerolog.Logger
+	executeFn executeFn
 }
 
 // newScheduler returns a new initialized scheduler.
-func newScheduler(tick time.Duration) *scheduler {
+func newScheduler(tick time.Duration, logger *zerolog.Logger, executeFn executeFn) *scheduler {
 	s := &scheduler{
-		ticker: time.NewTicker(tick),
-		add:    make(chan *contract.TimelockCallScheduled),
-		del:    make(chan operationKey),
-		store:  make(map[operationKey][]*contract.TimelockCallScheduled),
-		busy:   false,
+		ticker:    time.NewTicker(tick),
+		add:       make(chan *contract.TimelockCallScheduled),
+		del:       make(chan operationKey),
+		store:     make(map[operationKey][]*contract.TimelockCallScheduled),
+		busy:      false,
+		logger:    logger,
+		executeFn: executeFn,
 	}
 
 	return s
@@ -50,7 +63,7 @@ func newScheduler(tick time.Duration) *scheduler {
 // call them this way so no process is allowd to add/delete from
 // the store, which could cause race conditions like adding/deleting
 // while the operation is being executed.
-func (tw *Worker) runScheduler(ctx context.Context) <-chan struct{} {
+func (tw *scheduler) runScheduler(ctx context.Context) <-chan struct{} {
 	done := make(chan struct{})
 
 	go func() {
@@ -67,7 +80,7 @@ func (tw *Worker) runScheduler(ctx context.Context) <-chan struct{} {
 					tw.logger.Debug().Msgf("new scheduler tick: operations in store")
 					tw.setSchedulerBusy()
 					for _, op := range tw.store {
-						tw.execute(ctx, op)
+						tw.executeFn(ctx, op)
 					}
 					tw.setSchedulerFree()
 				} else {
@@ -102,7 +115,7 @@ func (tw *Worker) runScheduler(ctx context.Context) <-chan struct{} {
 }
 
 // updateSchedulerDelay updates the internal ticker delay, so it can be reconfigured while running.
-func (tw *Worker) updateSchedulerDelay(t time.Duration) {
+func (tw *scheduler) updateSchedulerDelay(t time.Duration) {
 	if t <= 0 {
 		tw.logger.Debug().Msgf("internal min delay not changed, invalid duration: %v", t.String())
 		return
@@ -113,40 +126,38 @@ func (tw *Worker) updateSchedulerDelay(t time.Duration) {
 }
 
 // addToScheduler adds a new CallSchedule operation safely to the store.
-func (tw *Worker) addToScheduler(op *contract.TimelockCallScheduled) {
+func (tw *scheduler) addToScheduler(op *contract.TimelockCallScheduled) {
 	tw.logger.Debug().Msgf("scheduling operation: %x", op.Id)
 	tw.add <- op
-	tw.logger.Debug().Msgf("operations in scheduler: %v", len(tw.store))
 }
 
 // delFromScheduler deletes an operation safely from the store.
-func (tw *Worker) delFromScheduler(op operationKey) {
+func (tw *scheduler) delFromScheduler(op operationKey) {
 	tw.logger.Debug().Msgf("de-scheduling operation: %v", op)
 	tw.del <- op
-	tw.logger.Debug().Msgf("operations in scheduler: %v", len(tw.store))
 }
 
-func (tw *Worker) setSchedulerBusy() {
+func (tw *scheduler) setSchedulerBusy() {
 	tw.logger.Debug().Msgf("setting scheduler busy")
 	tw.mu.Lock()
 	tw.busy = true
 	tw.mu.Unlock()
 }
 
-func (tw *Worker) setSchedulerFree() {
+func (tw *scheduler) setSchedulerFree() {
 	tw.logger.Debug().Msgf("setting scheduler free")
 	tw.mu.Lock()
 	tw.busy = false
 	tw.mu.Unlock()
 }
 
-func (tw *Worker) isSchedulerBusy() bool {
+func (tw *scheduler) isSchedulerBusy() bool {
 	return tw.busy
 }
 
 // dumpOperationStore dumps to the logger and to the log file the current scheduled unexecuted operations.
 // maps in go don't guarantee order, so that's why we have to find the earliest block.
-func (tw *Worker) dumpOperationStore(now func() time.Time) {
+func (tw *scheduler) dumpOperationStore(now func() time.Time) {
 	if len(tw.store) <= 0 {
 		tw.logger.Info().Msgf("no operations to dump")
 		return
@@ -248,4 +259,38 @@ func toEarliestRecord(op *contract.TimelockCallScheduled) string {
 // toSubsequentRecord returns a string for use with each subsequent record sent to a writer.
 func toSubsequentRecord(op *contract.TimelockCallScheduled) string {
 	return fmt.Sprintf("CallSchedule pending ID: %x\tBlock Number: %v\n", op.Id, op.Raw.BlockNumber)
+}
+
+// ----- nop scheduler -----
+// nopScheduler implements the Scheduler interface but doesn't not effectively trigger any operations.
+type nopScheduler struct {
+	logger *zerolog.Logger
+}
+
+func newNopScheduler(logger *zerolog.Logger) *nopScheduler {
+	return &nopScheduler{logger: logger}
+}
+
+func (s *nopScheduler) runScheduler(ctx context.Context) <-chan struct{} {
+	s.logger.Info().Msg("nop.runScheduler")
+	ch := make(chan struct{})
+
+	go func() {
+		<-ctx.Done()
+		close(ch)
+	}()
+
+	return ch
+}
+
+func (s *nopScheduler) addToScheduler(op *contract.TimelockCallScheduled) {
+	s.logger.Info().Any("op", op).Msg("nop.addToScheduler")
+}
+
+func (s *nopScheduler) delFromScheduler(key operationKey) {
+	s.logger.Info().Any("key", key).Msg("nop.delFromScheduler")
+}
+
+func (s *nopScheduler) dumpOperationStore(now func() time.Time) {
+	s.logger.Info().Msg("nop.dumpOperationStore")
 }
