@@ -17,14 +17,14 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/rs/zerolog"
 	"github.com/samber/lo"
-	"github.com/smartcontractkit/timelock-worker/pkg/timelock/contract"
+	contracts "github.com/smartcontractkit/ccip-owner-contracts/gethwrappers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func Test_newScheduler(t *testing.T) {
 	logger := zerolog.Nop()
-	execFn := func(context.Context, []*contract.TimelockCallScheduled) {}
+	execFn := func(context.Context, []*contracts.RBACTimelockCallScheduled) {}
 	tScheduler := newTestScheduler()
 
 	type args struct {
@@ -87,8 +87,8 @@ func Test_scheduler_setSchedulerBusy(t *testing.T) {
 
 func Test_scheduler_setSchedulerFree(t *testing.T) {
 	logger := zerolog.Nop()
-	execFn := func(context.Context, []*contract.TimelockCallScheduled) {}
-	tScheduler := newScheduler(10 * time.Second, &logger, execFn)
+	execFn := func(context.Context, []*contracts.RBACTimelockCallScheduled) {}
+	tScheduler := newScheduler(10*time.Second, &logger, execFn)
 
 	tScheduler.setSchedulerFree()
 	isBusy := tScheduler.isSchedulerBusy()
@@ -102,7 +102,7 @@ func Test_dumpOperationStore(t *testing.T) {
 		earliestBlock = 42
 		opKeys        = generateOpKeys(t, []string{"1", "2"})
 
-		earliest = &contract.TimelockCallScheduled{
+		earliest = &contracts.RBACTimelockCallScheduled{
 			Id: opKeys[0],
 			Raw: types.Log{
 				TxHash:      common.HexToHash("txn-1"),
@@ -110,7 +110,7 @@ func Test_dumpOperationStore(t *testing.T) {
 			},
 		}
 
-		following = &contract.TimelockCallScheduled{
+		following = &contracts.RBACTimelockCallScheduled{
 			Id: opKeys[1],
 			Raw: types.Log{
 				TxHash:      common.HexToHash("txn-2"),
@@ -118,13 +118,13 @@ func Test_dumpOperationStore(t *testing.T) {
 			},
 		}
 
-		store = map[operationKey][]*contract.TimelockCallScheduled{
+		store = map[operationKey][]*contracts.RBACTimelockCallScheduled{
 			opKeys[0]: {earliest},
 			opKeys[1]: {following},
 		}
 
 		scheduler = scheduler{
-			store: store,
+			store:  store,
 			logger: func(l zerolog.Logger) *zerolog.Logger { return &l }(zerolog.Nop()),
 		}
 	)
@@ -164,7 +164,7 @@ func Test_scheduler_concurrency(t *testing.T) {
 
 	executedOps := map[int]uint16{} // {numericOpId: executionCount}
 	executedCh := make(chan operationKey)
-	execFn := func(ctx context.Context, ops []*contract.TimelockCallScheduled) {
+	execFn := func(ctx context.Context, ops []*contracts.RBACTimelockCallScheduled) {
 		for _, op := range ops {
 			opNum := int(opIDToNum(t, op.Id))
 			executedOps[opNum] = executedOps[opNum] + 1
@@ -195,8 +195,8 @@ func Test_scheduler_concurrency(t *testing.T) {
 
 func newTestScheduler() *scheduler {
 	logger := zerolog.Nop()
-	execFn := func(context.Context, []*contract.TimelockCallScheduled) {}
-	return newScheduler(10 * time.Second, &logger, execFn)
+	execFn := func(context.Context, []*contracts.RBACTimelockCallScheduled) {}
+	return newScheduler(10*time.Second, &logger, execFn)
 }
 
 // generateOpKeys generates a slice of operation keys from a slice of strings.
@@ -230,7 +230,7 @@ func runMockEventListener(
 	for {
 		select {
 		case <-ticker.C:
-			op := &contract.TimelockCallScheduled{Id: opID(uint16(opNum)), Index: big.NewInt(0)}
+			op := &contracts.RBACTimelockCallScheduled{Id: opID(uint16(opNum)), Index: big.NewInt(0)}
 			opNum += 1
 			testScheduler.addToScheduler(op)
 

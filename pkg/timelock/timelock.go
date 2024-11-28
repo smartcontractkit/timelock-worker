@@ -19,9 +19,9 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/rs/zerolog"
+	contracts "github.com/smartcontractkit/ccip-owner-contracts/gethwrappers"
 
 	"github.com/smartcontractkit/timelock-worker/pkg/isclosed"
-	"github.com/smartcontractkit/timelock-worker/pkg/timelock/contract"
 )
 
 // Worker represents a worker instance.
@@ -29,8 +29,8 @@ import (
 // but it's enforced only to one address in the logic.
 type Worker struct {
 	ethClient          *ethclient.Client
-	contract           *contract.Timelock
-	executeContract    *contract.Timelock
+	contract           *contracts.RBACTimelock
+	executeContract    *contracts.RBACTimelock
 	abi                *abi.ABI
 	address            []common.Address
 	fromBlock          *big.Int
@@ -94,21 +94,21 @@ func NewTimelockWorker(
 
 	ethClient := ethclient.NewClient(client)
 
-	timelockABI, err := contract.TimelockMetaData.GetAbi()
+	timelockABI, err := contracts.RBACTimelockMetaData.GetAbi()
 	if err != nil {
 		return nil, err
 	}
 
 	// The contract ABI give grants capabilities such as parsing events and accessing to fields.
 	// As NewTimelock only accepts one contract, hardcode it to address[0].
-	timelockContract, err := contract.NewTimelock(common.HexToAddress(timelockAddress), ethClient)
+	timelockContract, err := contracts.NewRBACTimelock(common.HexToAddress(timelockAddress), ethClient)
 	if err != nil {
 		return nil, err
 	}
 
 	// The execute contract is the call proxy contract, which is the one that actually executes the transaction.
 	// It's not the same as the timelock contract, so it has to be initialized separately.
-	executeContract, err := contract.NewTimelock(common.HexToAddress(callProxyAddress), ethClient)
+	executeContract, err := contracts.NewRBACTimelock(common.HexToAddress(callProxyAddress), ethClient)
 	if err != nil {
 		return nil, err
 	}

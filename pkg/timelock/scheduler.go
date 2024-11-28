@@ -12,20 +12,19 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-
-	"github.com/smartcontractkit/timelock-worker/pkg/timelock/contract"
+	contracts "github.com/smartcontractkit/ccip-owner-contracts/gethwrappers"
 )
 
 type operationKey [32]byte
 
 type Scheduler interface {
 	runScheduler(ctx context.Context) <-chan struct{}
-	addToScheduler(op *contract.TimelockCallScheduled)
+	addToScheduler(op *contracts.RBACTimelockCallScheduled)
 	delFromScheduler(op operationKey)
 	dumpOperationStore(now func() time.Time)
 }
 
-type executeFn func(context.Context, []*contract.TimelockCallScheduled)
+type executeFn func(context.Context, []*contracts.RBACTimelockCallScheduled)
 
 // Scheduler represents a scheduler with an in memory store.
 // Whenever accesing the map the mutex should be Locked, to prevent
@@ -33,9 +32,9 @@ type executeFn func(context.Context, []*contract.TimelockCallScheduled)
 type scheduler struct {
 	mu        sync.Mutex
 	ticker    *time.Ticker
-	add       chan *contract.TimelockCallScheduled
+	add       chan *contracts.RBACTimelockCallScheduled
 	del       chan operationKey
-	store     map[operationKey][]*contract.TimelockCallScheduled
+	store     map[operationKey][]*contracts.RBACTimelockCallScheduled
 	busy      bool
 	logger    *zerolog.Logger
 	executeFn executeFn
@@ -45,9 +44,9 @@ type scheduler struct {
 func newScheduler(tick time.Duration, logger *zerolog.Logger, executeFn executeFn) *scheduler {
 	s := &scheduler{
 		ticker:    time.NewTicker(tick),
-		add:       make(chan *contract.TimelockCallScheduled),
+		add:       make(chan *contracts.RBACTimelockCallScheduled),
 		del:       make(chan operationKey),
-		store:     make(map[operationKey][]*contract.TimelockCallScheduled),
+		store:     make(map[operationKey][]*contracts.RBACTimelockCallScheduled),
 		busy:      false,
 		logger:    logger,
 		executeFn: executeFn,
@@ -126,7 +125,7 @@ func (tw *scheduler) updateSchedulerDelay(t time.Duration) {
 }
 
 // addToScheduler adds a new CallSchedule operation safely to the store.
-func (tw *scheduler) addToScheduler(op *contract.TimelockCallScheduled) {
+func (tw *scheduler) addToScheduler(op *contracts.RBACTimelockCallScheduled) {
 	tw.logger.Debug().Msgf("scheduling operation: %x", op.Id)
 	tw.add <- op
 }
@@ -188,20 +187,20 @@ func (tw *scheduler) dumpOperationStore(now func() time.Time) {
 type storeRecord struct {
 	Block uint64
 	OpKey operationKey
-	Ops   []*contract.TimelockCallScheduled
+	Ops   []*contracts.RBACTimelockCallScheduled
 }
 
 // writeOperationStore writes the operations to the writer.
 func writeOperationStore(
 	w io.Writer,
 	logger *zerolog.Logger,
-	store map[operationKey][]*contract.TimelockCallScheduled,
+	store map[operationKey][]*contracts.RBACTimelockCallScheduled,
 	earliest uint64,
 	now func() time.Time,
 ) {
 	var (
 		err error
-		op  *contract.TimelockCallScheduled
+		op  *contracts.RBACTimelockCallScheduled
 		msg string
 	)
 
@@ -248,7 +247,7 @@ func writeOperationStore(
 }
 
 // toEarliestRecord returns a string with the earliest record.
-func toEarliestRecord(op *contract.TimelockCallScheduled) string {
+func toEarliestRecord(op *contracts.RBACTimelockCallScheduled) string {
 	tmpl := "Earliest CallSchedule pending ID: %x\tBlock Number: %v\n" +
 		"\tUse this block number to ensure all pending operations are properly executed.  " +
 		"\tSet it as environment variable or in timelock.env with FROM_BLOCK=%v, or as a flag with --from-block=%v\n"
@@ -257,7 +256,7 @@ func toEarliestRecord(op *contract.TimelockCallScheduled) string {
 }
 
 // toSubsequentRecord returns a string for use with each subsequent record sent to a writer.
-func toSubsequentRecord(op *contract.TimelockCallScheduled) string {
+func toSubsequentRecord(op *contracts.RBACTimelockCallScheduled) string {
 	return fmt.Sprintf("CallSchedule pending ID: %x\tBlock Number: %v\n", op.Id, op.Raw.BlockNumber)
 }
 
@@ -283,7 +282,7 @@ func (s *nopScheduler) runScheduler(ctx context.Context) <-chan struct{} {
 	return ch
 }
 
-func (s *nopScheduler) addToScheduler(op *contract.TimelockCallScheduled) {
+func (s *nopScheduler) addToScheduler(op *contracts.RBACTimelockCallScheduled) {
 	s.logger.Info().Any("op", op).Msg("nop.addToScheduler")
 }
 
