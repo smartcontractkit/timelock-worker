@@ -25,8 +25,8 @@ func newTestTimelockWorker(
 
 	tw, err := NewTimelockWorker(nodeURL, timelockAddress, callProxyAddress, privateKey, fromBlock,
 		pollPeriod, eventListenerPollPeriod, dryRun, logger)
-	assert.NoError(t, err)
-	assert.NotNil(t, tw)
+	require.NoError(t, err)
+	require.NotNil(t, tw)
 
 	return tw
 }
@@ -34,10 +34,7 @@ func newTestTimelockWorker(
 func TestNewTimelockWorker(t *testing.T) {
 	t.Parallel()
 
-	svr := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, req *http.Request) {
-		writer.Write([]byte("Ok"))
-	}))
-	defer svr.Close()
+	rpcURL := runRPCServer(t)
 
 	type argsT struct {
 		nodeURL                 string
@@ -51,7 +48,7 @@ func TestNewTimelockWorker(t *testing.T) {
 		logger                  zerolog.Logger
 	}
 	defaultArgs := argsT{
-		nodeURL:                 svr.URL,
+		nodeURL:                 rpcURL,
 		timelockAddress:         "0x0000000000000000000000000000000000000001",
 		callProxyAddress:        "0x0000000000000000000000000000000000000002",
 		privateKey:              "1921763610b80b2b147ca676c775c172ba6c037f6ba135792bed6bc458c660f0",
@@ -136,7 +133,9 @@ func TestNewTimelockWorker(t *testing.T) {
 func TestWorker_startLog(t *testing.T) {
 	t.Parallel()
 
-	testWorker := newTestTimelockWorker(t, testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey,
+	rpcURL := runRPCServer(t)
+
+	testWorker := newTestTimelockWorker(t, rpcURL, testTimelockAddress, testCallProxyAddress, testPrivateKey,
 		testFromBlock, int64(testPollPeriod), int64(testEventListenerPollPeriod), testDryRun, testLogger)
 
 	tests := []struct {
@@ -151,4 +150,17 @@ func TestWorker_startLog(t *testing.T) {
 			testWorker.startLog()
 		})
 	}
+}
+
+// ----- helpers -----
+
+func runRPCServer(t *testing.T) string {
+	t.Helper()
+
+	svr := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, req *http.Request) {
+		writer.Write([]byte("Ok"))
+	}))
+	t.Cleanup(svr.Close)
+
+	return svr.URL
 }

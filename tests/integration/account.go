@@ -14,14 +14,14 @@ import (
 // TestAccount is data type wrapping attributes typically needed when managing
 // ethereum accounts.
 type TestAccount struct {
-	address       common.Address
-	hexAddress    string
-	privateKey    *ecdsa.PrivateKey
-	hexPrivateKey string
+	Address       common.Address
+	HexAddress    string
+	PrivateKey    *ecdsa.PrivateKey
+	HexPrivateKey string
 }
 
 func (ta TestAccount) String() string {
-	return fmt.Sprintf("TestAccount{address: %s, privateKey: %s}", ta.hexAddress, ta.hexPrivateKey)
+	return fmt.Sprintf("TestAccount{address: %s, privateKey: %s}", ta.HexAddress, ta.HexPrivateKey)
 }
 
 // NewTestAccount generates a new ecdsa key and returns a TestAccount structure
@@ -38,9 +38,9 @@ func NewTestAccount(t *testing.T) TestAccount {
 	address := crypto.PubkeyToAddress(*publicKeyECDSA)
 
 	return TestAccount{
-		address:       address,
-		hexAddress:    address.Hex(),
-		privateKey:    privateKey,
-		hexPrivateKey: hexutil.Encode(crypto.FromECDSA(privateKey))[2:],
+		Address:       address,
+		HexAddress:    address.Hex(),
+		PrivateKey:    privateKey,
+		HexPrivateKey: hexutil.Encode(crypto.FromECDSA(privateKey))[2:],
 	}
 }
