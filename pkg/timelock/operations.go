@@ -21,20 +21,20 @@ import (
 // Otherwise the operation will throw an info log and wait for a future tick.
 func (tw *Worker) execute(ctx context.Context, op []*contracts.RBACTimelockCallScheduled) {
 	if isReady(ctx, tw.contract, op[0].Id) {
-		tw.logger.Debug().Msgf("execute operation %x", op[0].Id)
+		tw.logger.Debugf("execute operation %x", op[0].Id)
 
 		tx, err := tw.executeCallSchedule(ctx, &tw.executeContract.RBACTimelockTransactor, op, tw.privateKey)
 		if err != nil || tx == nil {
-			tw.logger.Error().Msgf("execute operation %x error: %s", op[0].Id, err.Error())
+			tw.logger.Errorf("execute operation %x error: %s", op[0].Id, err.Error())
 		} else {
-			tw.logger.Info().Msgf("execute operation %x success: %s", op[0].Id, tx.Hash())
+			tw.logger.Infof("execute operation %x success: %s", op[0].Id, tx.Hash())
 
 			if _, err = bind.WaitMined(ctx, tw.ethClient, tx); err != nil {
-				tw.logger.Error().Msgf("execute operation %x error: %s", op[0].Id, err.Error())
+				tw.logger.Errorf("execute operation %x error: %s", op[0].Id, err.Error())
 			}
 		}
 	} else {
-		tw.logger.Info().Msgf("skipping operation %x: not ready", op[0].Id)
+		tw.logger.Infof("skipping operation %x: not ready", op[0].Id)
 	}
 }
 
@@ -68,11 +68,11 @@ func (tw *Worker) executeCallSchedule(ctx context.Context, c *contracts.RBACTime
 
 	// if chainId is zksync-testnet or mainnet use custom gasPrice to enforce legacy tx
 	if chainID.Cmp(new(big.Int).SetUint64(chainselectors.ETHEREUM_MAINNET_ZKSYNC_1.EvmChainID)) == 0 || chainID.Cmp(new(big.Int).SetUint64(chainselectors.ETHEREUM_TESTNET_SEPOLIA_ZKSYNC_1.EvmChainID)) == 0 {
-		tw.logger.Info().Msgf("zkSync chain detected, using legacy tx")
+		tw.logger.Infof("zkSync chain detected, using legacy tx")
 		txOpts.GasPrice = big.NewInt(1000000000) // gasPrice set to 1 gwei
 	}
 
-	tw.logger.Info().Msgf("Calling execute Batch...")
+	tw.logger.Infof("Calling execute Batch...")
 	// Execute the tx's with all the computed calls.
 	// Predecessor and salt are the same for all the tx's.
 	tx, err := c.ExecuteBatch(

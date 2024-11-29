@@ -22,5 +22,5 @@ func versionCommand() *cobra.Command {
 }
 
 func versionHandler(_ *cobra.Command, _ []string) {
-	logs.Info().Msgf("%s Version: %s Commit: %s", os.Args[0], Version, Commit)
+	logs.Sugar().Infof("%s Version: %s Commit: %s", os.Args[0], Version, Commit)
 }

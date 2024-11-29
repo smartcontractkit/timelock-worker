@@ -1,53 +1,33 @@
 package logger
 
 import (
-	"os"
-	"sync"
-	"time"
+	"fmt"
 
-	"github.com/rs/zerolog"
+	"go.uber.org/zap"
 )
 
-var (
-	once   sync.Once       //nolint:gochecknoglobals
-	logger *zerolog.Logger //nolint:gochecknoglobals
-)
+// NewLogger initializes the Logger with the given arguments.
+func NewLogger(logLevel string, output string) (*zap.Logger, error) {
+	var err error
+	var loggerConfig zap.Config
 
-// humanConsoleWriter configures the human-readable output.
-var humanConsoleWriter = zerolog.ConsoleWriter{ //nolint:gochecknoglobals
-	Out:        os.Stdout,
-	TimeFormat: time.RFC3339,
-}
-
-// Logger returns an instance of Logger.
-func Logger(logLevel string, output string) *zerolog.Logger {
-	if logger == nil {
-		once.Do(
-			func() {
-				logger = newLogger(logLevel, output)
-			})
-	}
-
-	return logger
-}
-
-// newLogger initializes the Logger with the given arguments.
-func newLogger(logLevel string, output string) *zerolog.Logger {
-	level, err := zerolog.ParseLevel(logLevel)
-	if err != nil {
-		// Do not crash on wrong user input, default to InfoLevel.
-		level = zerolog.InfoLevel
-	}
-
-	var l zerolog.Logger
 	switch output {
-	case "human":
-		l = zerolog.New(humanConsoleWriter).Level(level).With().Timestamp().Logger()
 	case "json":
-		l = zerolog.New(os.Stdout).Level(level).With().Timestamp().Logger()
+		loggerConfig = zap.NewProductionConfig()
+	case "human":
+		loggerConfig = zap.NewDevelopmentConfig()
 	default:
-		l = zerolog.New(humanConsoleWriter).Level(level).With().Timestamp().Logger()
+		return nil, fmt.Errorf("invalid logger output: %q", output)
 	}
 
-	return &l
+	loggerConfig.Level, err = zap.ParseAtomicLevel(logLevel)
+	if err != nil {
+		return nil, err
+	}
+
+	// use stdout, not stderr to maintain compatibility with zerolog
+	loggerConfig.OutputPaths = []string{"stdout"}
+	loggerConfig.ErrorOutputPaths = []string{"stdout"}
+
+	return loggerConfig.Build()
 }

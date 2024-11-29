@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/rs/zerolog"
+	"go.uber.org/zap"
 )
 
 // HealthStatus represents the health status enum.
@@ -66,20 +66,20 @@ func respond(status HealthStatus, w http.ResponseWriter) {
 }
 
 // Starts a http server, serving the healthz endpoint.
-func StartHTTPHealthServer(l *zerolog.Logger) {
-	startServer(l, "health", ":8080", func(mux *http.ServeMux) {
+func StartHTTPHealthServer(log *zap.SugaredLogger) {
+	startServer(log, "health", ":8080", func(mux *http.ServeMux) {
 		mux.HandleFunc("/healthz", liveHandler)
 		mux.HandleFunc("/ready", readyHandler)
 	})
 }
 
-func StartMetricsServer(l *zerolog.Logger) {
-	startServer(l, "metrics", ":2021", func(mux *http.ServeMux) {
+func StartMetricsServer(log *zap.SugaredLogger) {
+	startServer(log, "metrics", ":2021", func(mux *http.ServeMux) {
 		mux.Handle("/metrics", promhttp.Handler())
 	})
 }
 
-func startServer(l *zerolog.Logger, name, addr string, opts ...func(*http.ServeMux)) {
+func startServer(log *zap.SugaredLogger, name, addr string, opts ...func(*http.ServeMux)) {
 	mux := http.NewServeMux()
 	for _, opt := range opts {
 		opt(mux)
@@ -93,8 +93,8 @@ func startServer(l *zerolog.Logger, name, addr string, opts ...func(*http.ServeM
 		IdleTimeout:  15 * time.Second, // Set your desired idle timeout
 	}
 
-	l.Info().Msgf("%s server listening on %s", name, addr)
+	log.Infof("%s server listening on %s", name, addr)
 	if err := server.ListenAndServe(); err != nil {
-		l.Error().Msgf("%s server stopped: %s", name, err)
+		log.Errorf("%s server stopped: %s", name, err)
 	}
 }

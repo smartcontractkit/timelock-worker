@@ -15,15 +15,15 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/google/go-cmp/cmp"
-	"github.com/rs/zerolog"
 	"github.com/samber/lo"
 	contracts "github.com/smartcontractkit/ccip-owner-contracts/gethwrappers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 func Test_newScheduler(t *testing.T) {
-	logger := zerolog.Nop()
+	logger := zap.NewNop().Sugar()
 	execFn := func(context.Context, []*contracts.RBACTimelockCallScheduled) {}
 	tScheduler := newTestScheduler()
 
@@ -45,7 +45,7 @@ func Test_newScheduler(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := newScheduler(tt.args.tick, &logger, execFn)
+			got := newScheduler(tt.args.tick, logger, execFn)
 			if reflect.TypeOf(got) != reflect.TypeOf(tt.want) {
 				t.Errorf("newScheduler() = %v, want %v", got, tt.want)
 			}
@@ -86,9 +86,9 @@ func Test_scheduler_setSchedulerBusy(t *testing.T) {
 }
 
 func Test_scheduler_setSchedulerFree(t *testing.T) {
-	logger := zerolog.Nop()
+	logger := zap.NewNop().Sugar()
 	execFn := func(context.Context, []*contracts.RBACTimelockCallScheduled) {}
-	tScheduler := newScheduler(10*time.Second, &logger, execFn)
+	tScheduler := newScheduler(10*time.Second, logger, execFn)
 
 	tScheduler.setSchedulerFree()
 	isBusy := tScheduler.isSchedulerBusy()
@@ -99,6 +99,7 @@ func Test_scheduler_setSchedulerFree(t *testing.T) {
 func Test_dumpOperationStore(t *testing.T) {
 	var (
 		fName         = logPath + logFile
+		logger        = zap.NewNop().Sugar()
 		earliestBlock = 42
 		opKeys        = generateOpKeys(t, []string{"1", "2"})
 
@@ -125,7 +126,7 @@ func Test_dumpOperationStore(t *testing.T) {
 
 		scheduler = scheduler{
 			store:  store,
-			logger: func(l zerolog.Logger) *zerolog.Logger { return &l }(zerolog.Nop()),
+			logger: logger,
 		}
 	)
 
@@ -159,7 +160,7 @@ func Test_dumpOperationStore(t *testing.T) {
 
 func Test_scheduler_concurrency(t *testing.T) {
 	const numOps = 100
-	logger := zerolog.Nop()
+	logger := zap.NewNop().Sugar()
 	ctx, cancel := context.WithCancel(context.Background())
 
 	executedOps := map[int]uint16{} // {numericOpId: executionCount}
@@ -176,7 +177,7 @@ func Test_scheduler_concurrency(t *testing.T) {
 	}
 
 	// run scheduler
-	testScheduler := newScheduler(10*time.Millisecond, &logger, execFn)
+	testScheduler := newScheduler(10*time.Millisecond, logger, execFn)
 	_ = testScheduler.runScheduler(ctx)
 
 	// run mock event listener
@@ -194,9 +195,9 @@ func Test_scheduler_concurrency(t *testing.T) {
 // ----- helpers -----
 
 func newTestScheduler() *scheduler {
-	logger := zerolog.Nop()
+	logger := zap.NewNop().Sugar()
 	execFn := func(context.Context, []*contracts.RBACTimelockCallScheduled) {}
-	return newScheduler(10*time.Second, &logger, execFn)
+	return newScheduler(10*time.Second, logger, execFn)
 }
 
 // generateOpKeys generates a slice of operation keys from a slice of strings.

@@ -2,20 +2,18 @@ package integration
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"math/big"
-	"regexp"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/rs/zerolog"
 	"github.com/samber/lo"
 	contracts "github.com/smartcontractkit/ccip-owner-contracts/gethwrappers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/smartcontractkit/timelock-worker/pkg/timelock"
 	timelockTests "github.com/smartcontractkit/timelock-worker/tests"
@@ -31,16 +29,28 @@ func (s *integrationTestSuite) TestTimelockWorkerListen() {
 	_, err := s.GethContainer.CreateAccount(ctx, account.HexAddress, account.HexPrivateKey, 1)
 	s.Require().NoError(err)
 
-	gethURL := s.GethContainer.HTTPConnStr(s.T(), ctx)
-	backend := NewRPCBackend(s.T(), ctx, gethURL)
-
+	backend := NewRPCBackend(s.T(), ctx, s.GethContainer.HTTPConnStr(s.T(), ctx))
 	transactor := s.KeyedTransactor(account.PrivateKey, nil)
+
+	expectedEvents := []string{
+		"RoleAdminChanged", // <--+
+		"RoleAdminChanged", //    |
+		"RoleAdminChanged", //    |
+		"RoleAdminChanged", //    |
+		"RoleAdminChanged", //    |
+		"RoleGranted",      //    |-- contract deployment
+		"RoleGranted",      //    |
+		"RoleGranted",      //    |
+		"RoleGranted",      //    |
+		"MinDelayChange",   // <--+
+		"MinDelayChange",   // <----- updateDelay call
+	}
 
 	tests := []struct {
 		name string
 		url  string
 	}{
-		{name: "http connection", url: gethURL},
+		{name: "http connection", url: s.GethContainer.HTTPConnStr(s.T(), ctx)},
 		{name: "websocket connection", url: s.GethContainer.WSConnStr(s.T(), ctx)},
 	}
 	for _, tt := range tests {
@@ -48,18 +58,22 @@ func (s *integrationTestSuite) TestTimelockWorkerListen() {
 			sctx, cancel := context.WithCancel(ctx)
 			defer cancel()
 
-			logger := timelockTests.NewTestLogger(zerolog.Nop()) // "zerolog.TestWriter{T: t, Frame: 6}" when debugging
+			logger, logs := timelockTests.NewTestLogger()
 
 			timelockAddress, _, _, timelockContract := DeployTimelock(s.T(), ctx, transactor, backend,
 				account.Address, big.NewInt(1))
 			callProxyAddress, _, _, _ := DeployCallProxy(s.T(), ctx, transactor, backend, timelockAddress)
 
 			go runTimelockWorker(s.T(), sctx, tt.url, timelockAddress.String(), callProxyAddress.String(),
-				account.HexPrivateKey, big.NewInt(0), int64(60), int64(1), true, logger.Logger())
+				account.HexPrivateKey, big.NewInt(0), int64(60), int64(1), true, logger)
 
 			UpdateDelay(s.T(), ctx, transactor, backend, timelockContract, big.NewInt(10))
 
-			assertCapturedLogMessages(s.T(), logger)
+			s.EventuallyWithT(func(collect *assert.CollectT) {
+				logEntries := logs.FilterMessage("discarding event").All()
+				events := lo.Map(logEntries, func(e observer.LoggedEntry, _ int) string { return e.Context[0].String })
+				assert.ElementsMatch(collect, events, expectedEvents)
+			}, 5*time.Second, 200*time.Millisecond)
 		})
 	}
 }
@@ -79,38 +93,36 @@ func (s *integrationTestSuite) TestTimelockWorkerDryRun() {
 
 	transactor := s.KeyedTransactor(account.PrivateKey, nil)
 
+	calls := []contracts.RBACTimelockCall{{
+		Target: common.HexToAddress("0x000000000000000000000000000000000000000"),
+		Value:  big.NewInt(1),
+		Data:   hexutil.MustDecode("0x0123456789abcdef"),
+	}}
+
 	tests := []struct {
 		name   string
 		dryRun bool
-		assert func(t *testing.T, logger timelockTests.TestLogger)
+		assert func(t *testing.T, logs *observer.ObservedLogs)
 	}{
 		{
 			name:   "dry run enabled",
 			dryRun: true,
-			assert: func(t *testing.T, logger timelockTests.TestLogger) {
-				messages := []string{
-					`"message":"CallScheduled received"`,
-					`"message":"nop.addToScheduler"`,
-				}
+			assert: func(t *testing.T, logs *observer.ObservedLogs) {
+				t.Helper()
 				s.Require().EventuallyWithT(func(t *assert.CollectT) {
-					for _, message := range messages {
-						s.Assert().True(containsMatchingMessage(logger, regexp.MustCompile(message)))
-					}
+					assert.Equal(t, logs.FilterMessage("CallScheduled received").Len(), 1)
+					assert.Equal(t, logs.FilterMessage("nop.addToScheduler").Len(), 1)
 				}, 2*time.Second, 100*time.Millisecond)
 			},
 		},
 		{
 			name:   "dry run disabled",
 			dryRun: false,
-			assert: func(t *testing.T, logger timelockTests.TestLogger) {
-				messages := []string{
-					`"message":"scheduling operation: 371141ec10c0cc52996bed94240931136172d0b46bdc4bceaea1ef76675c1237"`,
-					`"message":"scheduled operation: 371141ec10c0cc52996bed94240931136172d0b46bdc4bceaea1ef76675c1237"`,
-				}
+			assert: func(t *testing.T, logs *observer.ObservedLogs) {
+				t.Helper()
 				s.Require().EventuallyWithT(func(t *assert.CollectT) {
-					for _, message := range messages {
-						s.Assert().True(containsMatchingMessage(logger, regexp.MustCompile(message)))
-					}
+					assert.Equal(t, logs.FilterMessage("scheduling operation: 371141ec10c0cc52996bed94240931136172d0b46bdc4bceaea1ef76675c1237").Len(), 1)
+					assert.Equal(t, logs.FilterMessage("scheduled operation: 371141ec10c0cc52996bed94240931136172d0b46bdc4bceaea1ef76675c1237").Len(), 1)
 				}, 2*time.Second, 100*time.Millisecond)
 			},
 		},
@@ -120,23 +132,18 @@ func (s *integrationTestSuite) TestTimelockWorkerDryRun() {
 			tctx, cancel := context.WithCancel(ctx)
 			defer cancel()
 
-			logger := timelockTests.NewTestLogger(zerolog.Nop()) // "zerolog.TestWriter{T: t, Frame: 6}" when debugging
+			logger, logs := timelockTests.NewTestLogger()
 
 			timelockAddress, _, _, timelockContract := DeployTimelock(s.T(), tctx, transactor, backend,
 				account.Address, big.NewInt(1))
 			callProxyAddress, _, _, _ := DeployCallProxy(s.T(), tctx, transactor, backend, timelockAddress)
 
 			go runTimelockWorker(s.T(), tctx, gethURL, timelockAddress.String(), callProxyAddress.String(),
-				account.HexPrivateKey, big.NewInt(0), int64(1), int64(1), tt.dryRun, logger.Logger())
+				account.HexPrivateKey, big.NewInt(0), int64(1), int64(1), tt.dryRun, logger)
 
-			calls := []contracts.RBACTimelockCall{{
-				Target: common.HexToAddress("0x000000000000000000000000000000000000000"),
-				Value:  big.NewInt(1),
-				Data:   hexutil.MustDecode("0x0123456789abcdef"),
-			}}
 			ScheduleBatch(s.T(), tctx, transactor, backend, timelockContract, calls, [32]byte{}, [32]byte{}, big.NewInt(1))
 
-			tt.assert(s.T(), logger)
+			tt.assert(s.T(), logs)
 		})
 	}
 }
@@ -145,78 +152,15 @@ func (s *integrationTestSuite) TestTimelockWorkerDryRun() {
 
 func runTimelockWorker(
 	t *testing.T, ctx context.Context, nodeURL, timelockAddress, callProxyAddress, privateKey string,
-	fromBlock *big.Int, pollPeriod int64, listenerPollPeriod int64, dryRun bool, logger *zerolog.Logger,
+	fromBlock *big.Int, pollPeriod int64, listenerPollPeriod int64, dryRun bool, logger *zap.Logger,
 ) {
 	t.Logf("TimelockWorker.Listen(%v, %v, %v, %v, %v, %v, %v)", nodeURL, timelockAddress,
 		callProxyAddress, privateKey, fromBlock, pollPeriod, listenerPollPeriod)
 	timelockWorker, err := timelock.NewTimelockWorker(nodeURL, timelockAddress,
-		callProxyAddress, privateKey, fromBlock, pollPeriod, listenerPollPeriod, dryRun, logger)
+		callProxyAddress, privateKey, fromBlock, pollPeriod, listenerPollPeriod, dryRun, logger.Sugar())
 	require.NoError(t, err)
 	require.NotNil(t, timelockWorker)
 
 	err = timelockWorker.Listen(ctx)
 	require.NoError(t, err)
-}
-
-func assertCapturedLogMessages(t *testing.T, logger timelockTests.TestLogger) {
-	t.Helper()
-	require.EventuallyWithT(t, func(collect *assert.CollectT) {
-		messages := selectDiscardingEventMessages(t, logger)
-		assert.ElementsMatch(collect, messages, []string{
-			"RoleAdminChanged", // <--+
-			"RoleAdminChanged", //    |
-			"RoleAdminChanged", //    |
-			"RoleAdminChanged", //    |
-			"RoleAdminChanged", //    |
-			"RoleGranted",      //    |-- contract deployment
-			"RoleGranted",      //    |
-			"RoleGranted",      //    |
-			"RoleGranted",      //    |
-			"MinDelayChange",   // <--+
-			"MinDelayChange",   // <----- updateDelay call
-		})
-	}, 5*time.Second, 200*time.Millisecond)
-}
-
-func selectMatchingMessage(logger timelockTests.TestLogger, pattern *regexp.Regexp) []string {
-	return lo.Filter(logger.Messages(), func(loggedMessage string, _ int) bool {
-		return pattern.MatchString(loggedMessage)
-	})
-}
-
-func containsMatchingMessage(logger timelockTests.TestLogger, pattern *regexp.Regexp) bool {
-	return len(selectMatchingMessage(logger, pattern)) > 0
-}
-
-func selectDiscardingEventMessages(t *testing.T, logger timelockTests.TestLogger) []string {
-	t.Helper()
-
-	messages := selectMatchingMessage(logger, regexp.MustCompile(`"message":"discarding event"`))
-	return lo.Map(messages, func(message string, _ int) string {
-		parsedEntry := struct{ Event string }{}
-		err := json.Unmarshal([]byte(message), &parsedEntry)
-		require.NoError(t, err)
-		return parsedEntry.Event
-	})
-}
-
-func assertJSONSubset(t assert.TestingT, expected string, actual string) bool {
-	var expectedJSONAsInterface, actualJSONAsInterface interface{}
-
-	if err := json.Unmarshal([]byte(expected), &expectedJSONAsInterface); err != nil {
-		return assert.Fail(t, fmt.Sprintf("Expected value ('%s') is not valid json.\nJSON parsing error: '%s'", expected, err.Error()))
-	}
-
-	if err := json.Unmarshal([]byte(actual), &actualJSONAsInterface); err != nil {
-		return assert.Fail(t, fmt.Sprintf("Input ('%s') needs to be valid json.\nJSON parsing error: '%s'", actual, err.Error()))
-	}
-
-	return assert.Subset(t, expectedJSONAsInterface, actualJSONAsInterface)
-}
-
-func requireJSONSubset(t require.TestingT, expected string, actual string) {
-	if assertJSONSubset(t, expected, actual) {
-		return
-	}
-	t.FailNow()
 }

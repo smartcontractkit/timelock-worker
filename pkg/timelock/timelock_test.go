@@ -6,14 +6,14 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 func newTestTimelockWorker(
 	t *testing.T, nodeURL, timelockAddress, callProxyAddress, privateKey string, fromBlock *big.Int,
-	pollPeriod int64, eventListenerPollPeriod int64, dryRun bool, logger *zerolog.Logger,
+	pollPeriod int64, eventListenerPollPeriod int64, dryRun bool, logger *zap.SugaredLogger,
 ) *Worker {
 	assert.NotEmpty(t, nodeURL, "nodeURL is empty. Are environment variabes in const_test.go set?")
 	assert.NotEmpty(t, timelockAddress, "nodeURL is empty. Are environment variabes in const_test.go set?")
@@ -45,7 +45,7 @@ func TestNewTimelockWorker(t *testing.T) {
 		pollPeriod              int64
 		eventListenerPollPeriod int64
 		dryRun                  bool
-		logger                  zerolog.Logger
+		logger                  *zap.SugaredLogger
 	}
 	defaultArgs := argsT{
 		nodeURL:                 rpcURL,
@@ -56,7 +56,7 @@ func TestNewTimelockWorker(t *testing.T) {
 		pollPeriod:              900,
 		eventListenerPollPeriod: 60,
 		dryRun:                  false,
-		logger:                  zerolog.Nop(),
+		logger:                  zap.NewNop().Sugar(),
 	}
 
 	tests := []struct {
@@ -118,7 +118,7 @@ func TestNewTimelockWorker(t *testing.T) {
 
 			got, err := NewTimelockWorker(args.nodeURL, args.timelockAddress, args.callProxyAddress,
 				args.privateKey, args.fromBlock, args.pollPeriod, args.eventListenerPollPeriod,
-				args.dryRun, &args.logger)
+				args.dryRun, args.logger)
 
 			if tt.wantErr == "" {
 				require.NoError(t, err)
