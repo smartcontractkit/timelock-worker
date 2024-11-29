@@ -12,18 +12,18 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	chainselectors "github.com/smartcontractkit/chain-selectors"
 
-	"github.com/smartcontractkit/timelock-worker/pkg/timelock/contract"
+	contracts "github.com/smartcontractkit/ccip-owner-contracts/gethwrappers"
 )
 
 // execute runs the CallScheduled operation if:
 // - The predecessor operation is finished
 // - The operation is ready to be executed
 // Otherwise the operation will throw an info log and wait for a future tick.
-func (tw *Worker) execute(ctx context.Context, op []*contract.TimelockCallScheduled) {
+func (tw *Worker) execute(ctx context.Context, op []*contracts.RBACTimelockCallScheduled) {
 	if isReady(ctx, tw.contract, op[0].Id) {
 		tw.logger.Debug().Msgf("execute operation %x", op[0].Id)
 
-		tx, err := tw.executeCallSchedule(ctx, &tw.executeContract.TimelockTransactor, op, tw.privateKey)
+		tx, err := tw.executeCallSchedule(ctx, &tw.executeContract.RBACTimelockTransactor, op, tw.privateKey)
 		if err != nil || tx == nil {
 			tw.logger.Error().Msgf("execute operation %x error: %s", op[0].Id, err.Error())
 		} else {
@@ -39,16 +39,16 @@ func (tw *Worker) execute(ctx context.Context, op []*contract.TimelockCallSchedu
 }
 
 // executeCallScheduleOperation is the handler to execute a CallScheduled operation.
-func (tw *Worker) executeCallSchedule(ctx context.Context, c *contract.TimelockTransactor, cs []*contract.TimelockCallScheduled, privateKey *ecdsa.PrivateKey) (*types.Transaction, error) {
+func (tw *Worker) executeCallSchedule(ctx context.Context, c *contracts.RBACTimelockTransactor, cs []*contracts.RBACTimelockCallScheduled, privateKey *ecdsa.PrivateKey) (*types.Transaction, error) {
 	fromAddress, err := privateKeyToAddress(privateKey)
 	if err != nil {
 		return nil, err
 	}
 
 	// Compute all the different calls from each specific CallSchedule.
-	calls := make([]contract.RBACTimelockCall, 0, len(cs))
+	calls := make([]contracts.RBACTimelockCall, 0, len(cs))
 	for _, op := range cs {
-		calls = append(calls, contract.RBACTimelockCall{
+		calls = append(calls, contracts.RBACTimelockCall{
 			Target: op.Target,
 			Value:  op.Value,
 			Data:   op.Data,
@@ -89,7 +89,7 @@ func (tw *Worker) executeCallSchedule(ctx context.Context, c *contract.TimelockT
 
 // isOperation returns a boolean determining if this is a valid operation.
 // It's mostly to be used for sanity checks.
-func isOperation(ctx context.Context, c *contract.Timelock, id [32]byte) bool {
+func isOperation(ctx context.Context, c *contracts.RBACTimelock, id [32]byte) bool {
 	isOp, err := c.IsOperation(&bind.CallOpts{Context: ctx}, id)
 	if err != nil {
 		return false
@@ -100,7 +100,7 @@ func isOperation(ctx context.Context, c *contract.Timelock, id [32]byte) bool {
 
 // isReady returns if the schedule operation is ready.
 // Not applicable to other operation types.
-func isReady(ctx context.Context, c *contract.Timelock, id [32]byte) bool {
+func isReady(ctx context.Context, c *contracts.RBACTimelock, id [32]byte) bool {
 	isReady, err := c.IsOperationReady(&bind.CallOpts{Context: ctx}, id)
 	if err != nil {
 		return false
@@ -110,7 +110,7 @@ func isReady(ctx context.Context, c *contract.Timelock, id [32]byte) bool {
 }
 
 // isDone returns true when the operation has been completed.
-func isDone(ctx context.Context, c *contract.Timelock, id [32]byte) bool {
+func isDone(ctx context.Context, c *contracts.RBACTimelock, id [32]byte) bool {
 	isDone, err := c.IsOperationDone(&bind.CallOpts{Context: ctx}, id)
 	if err != nil {
 		return false
@@ -121,7 +121,7 @@ func isDone(ctx context.Context, c *contract.Timelock, id [32]byte) bool {
 
 // isReady returns if the schedule operation is pending.
 // Not applicable to other operation types.
-func isPending(ctx context.Context, c *contract.Timelock, id [32]byte) bool {
+func isPending(ctx context.Context, c *contracts.RBACTimelock, id [32]byte) bool {
 	isPending, err := c.IsOperationPending(&bind.CallOpts{Context: ctx}, id)
 	if err != nil {
 		return false

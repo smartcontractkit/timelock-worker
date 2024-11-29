@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/smartcontractkit/timelock-worker/pkg/timelock/contract"
+	contracts "github.com/smartcontractkit/ccip-owner-contracts/gethwrappers"
 )
 
 func Test_isOperation(t *testing.T) {
@@ -18,7 +18,7 @@ func Test_isOperation(t *testing.T) {
 
 	type args struct {
 		ctx context.Context
-		c   *contract.Timelock
+		c   *contracts.RBACTimelock
 		id  [32]byte
 	}
 	tests := []struct {
@@ -62,7 +62,7 @@ func Test_isReady(t *testing.T) {
 
 	type args struct {
 		ctx context.Context
-		c   *contract.Timelock
+		c   *contracts.RBACTimelock
 		id  [32]byte
 	}
 	tests := []struct {
@@ -106,7 +106,7 @@ func Test_isDone(t *testing.T) {
 
 	type args struct {
 		ctx context.Context
-		c   *contract.Timelock
+		c   *contracts.RBACTimelock
 		id  [32]byte
 	}
 	tests := []struct {
@@ -150,7 +150,7 @@ func Test_isPending(t *testing.T) {
 
 	type args struct {
 		ctx context.Context
-		c   *contract.Timelock
+		c   *contracts.RBACTimelock
 		id  [32]byte
 	}
 	tests := []struct {
