@@ -141,6 +141,27 @@ func ExecuteBatch(
 	return transaction, receipt
 }
 
+func CancelBatch(
+	t *testing.T,
+	ctx context.Context, transactor *bind.TransactOpts, backend Backend,
+	timelockContract *contracts.RBACTimelock, operationID [32]byte,
+) (
+	*types.Transaction, *types.Receipt,
+) {
+	t.Helper()
+
+	transaction, err := timelockContract.Cancel(transactor, operationID)
+	require.NoError(t, err)
+
+	backend.Commit()
+	receipt, err := bind.WaitMined(ctx, backend, transaction)
+	require.NoError(t, err)
+	require.Equal(t, types.ReceiptStatusSuccessful, receipt.Status)
+	t.Logf("cancel batch transaction: %v", transaction.Hash())
+
+	return transaction, receipt
+}
+
 func SendTransaction(
 	t *testing.T, ctx context.Context, transactor *bind.TransactOpts, backend Backend,
 	account TestAccount, chainID *big.Int, value *big.Int, to common.Address, data []byte,

@@ -488,11 +488,9 @@ func (tw *Worker) handleLog(ctx context.Context, log types.Log) error {
 			return err
 		}
 
-		if isDone(ctx, tw.contract, cs.Id) {
-			tw.logger.With(fieldTXHash, fmt.Sprintf("%x", cs.Raw.TxHash[:])).
-				With(fieldBlockNumber, cs.Raw.BlockNumber).Infof("%s received, cancelling operation", eventCancelled)
-			tw.scheduler.delFromScheduler(cs.Id)
-		}
+		tw.logger.With(fieldTXHash, fmt.Sprintf("%x", cs.Raw.TxHash[:])).
+			With(fieldBlockNumber, cs.Raw.BlockNumber).Infof("%s received, cancelling operation", eventCancelled)
+		tw.scheduler.delFromScheduler(cs.Id)
 	default:
 		tw.logger.With("event", event.Name).Info("discarding event")
 	}

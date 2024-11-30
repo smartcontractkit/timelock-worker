@@ -110,8 +110,8 @@ func (s *integrationTestSuite) TestTimelockWorkerDryRun() {
 			assert: func(t *testing.T, logs *observer.ObservedLogs) {
 				t.Helper()
 				s.Require().EventuallyWithT(func(t *assert.CollectT) {
-					assert.Equal(t, logs.FilterMessage("CallScheduled received").Len(), 1)
-					assert.Equal(t, logs.FilterMessage("nop.addToScheduler").Len(), 1)
+					assertLogMessage(t, logs, "CallScheduled received")
+					assertLogMessage(t, logs, "nop.addToScheduler")
 				}, 2*time.Second, 100*time.Millisecond)
 			},
 		},
@@ -121,8 +121,8 @@ func (s *integrationTestSuite) TestTimelockWorkerDryRun() {
 			assert: func(t *testing.T, logs *observer.ObservedLogs) {
 				t.Helper()
 				s.Require().EventuallyWithT(func(t *assert.CollectT) {
-					assert.Equal(t, logs.FilterMessage("scheduling operation: 371141ec10c0cc52996bed94240931136172d0b46bdc4bceaea1ef76675c1237").Len(), 1)
-					assert.Equal(t, logs.FilterMessage("scheduled operation: 371141ec10c0cc52996bed94240931136172d0b46bdc4bceaea1ef76675c1237").Len(), 1)
+					assertLogMessage(t, logs, "scheduling operation: 371141ec10c0cc52996bed94240931136172d0b46bdc4bceaea1ef76675c1237")
+					assertLogMessage(t, logs, "scheduled operation: 371141ec10c0cc52996bed94240931136172d0b46bdc4bceaea1ef76675c1237")
 				}, 2*time.Second, 100*time.Millisecond)
 			},
 		},
@@ -148,6 +148,47 @@ func (s *integrationTestSuite) TestTimelockWorkerDryRun() {
 	}
 }
 
+func (s *integrationTestSuite) TestTimelockWorkerCancelledEvent() {
+	// --- arrange ---
+	ctx, cancel := context.WithCancel(s.Ctx)
+	defer cancel()
+
+	account := NewTestAccount(s.T())
+	_, err := s.GethContainer.CreateAccount(ctx, account.HexAddress, account.HexPrivateKey, 1)
+	s.Require().NoError(err)
+	s.Logf("new account created: %v", account)
+
+	gethURL := s.GethContainer.HTTPConnStr(s.T(), ctx)
+	backend := NewRPCBackend(s.T(), ctx, gethURL)
+	transactor := s.KeyedTransactor(account.PrivateKey, nil)
+	logger, logs := timelockTests.NewTestLogger()
+
+	timelockAddress, _, _, timelockContract := DeployTimelock(s.T(), ctx, transactor, backend,
+		account.Address, big.NewInt(1))
+	callProxyAddress, _, _, _ := DeployCallProxy(s.T(), ctx, transactor, backend, timelockAddress)
+
+	go runTimelockWorker(s.T(), ctx, gethURL, timelockAddress.String(), callProxyAddress.String(),
+		account.HexPrivateKey, big.NewInt(0), int64(1), int64(1), false, logger)
+
+	calls := []contracts.RBACTimelockCall{{
+		Target: common.HexToAddress("0x000000000000000000000000000000000000000"),
+		Value:  big.NewInt(1),
+		Data:   hexutil.MustDecode("0x0123456789abcdef"),
+	}}
+	predecessor := common.Hash{}
+	salt := common.Hash{}
+	operationID := common.HexToHash("371141ec10c0cc52996bed94240931136172d0b46bdc4bceaea1ef76675c1237")
+
+	// --- act ---
+	ScheduleBatch(s.T(), ctx, transactor, backend, timelockContract, calls, predecessor, salt, big.NewInt(1))
+	CancelBatch(s.T(), ctx, transactor, backend, timelockContract, operationID)
+
+	// --- assert ---
+	assertLogMessage(s.T(), logs, "Cancelled received, cancelling operation")
+	assertLogMessage(s.T(), logs, "de-scheduling operation: 371141ec10c0cc52996bed94240931136172d0b46bdc4bceaea1ef76675c1237")
+	assertLogMessage(s.T(), logs, "de-scheduled operation: 371141ec10c0cc52996bed94240931136172d0b46bdc4bceaea1ef76675c1237")
+}
+
 // ----- helpers -----
 
 func runTimelockWorker(
@@ -163,4 +204,8 @@ func runTimelockWorker(
 
 	err = timelockWorker.Listen(ctx)
 	require.NoError(t, err)
+}
+
+func assertLogMessage(t assert.TestingT, logs *observer.ObservedLogs, message string) {
+	assert.Equal(t, logs.FilterMessage(message).Len(), 1)
 }
