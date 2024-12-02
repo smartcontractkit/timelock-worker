@@ -2,19 +2,19 @@ package timelock
 
 import (
 	"math/big"
-	"os"
 
-	"github.com/smartcontractkit/timelock-worker/pkg/logger"
+	"github.com/rs/zerolog"
+	"github.com/samber/lo"
 )
 
 var (
-	testNodeURL                 = os.Getenv("TEST_NODE_URL")
-	testTimelockAddress         = os.Getenv("TEST_TIMELOCK_ADDRESS")
-	testCallProxyAddress        = os.Getenv("TEST_PROXY_ADDRESS")
-	testPrivateKey              = os.Getenv("TEST_PRIVATE_KEY")
+	testNodeURL                 = "ws://node.url"
+	testTimelockAddress         = "0x0000000000000000000000000000000000000000"
+	testCallProxyAddress        = "0x0000000000000000000000000000000000000000"
+	testPrivateKey              = "8064bf62c044d2654705b9d0cfbd666c2649fabb76ed8f4b9d8d3eb28267e3cf"
 	testFromBlock               = big.NewInt(0)
 	testPollPeriod              = 5
-	testEventListenerPollPeriod = 0
+	testEventListenerPollPeriod = 1
 	testDryRun                  = false
-	testLogger                  = logger.Logger("info", "human")
+	testLogger                  = lo.ToPtr(zerolog.Nop())
 )

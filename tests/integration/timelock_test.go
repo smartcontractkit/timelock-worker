@@ -11,7 +11,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/rs/zerolog"
 	"github.com/samber/lo"
 	contracts "github.com/smartcontractkit/ccip-owner-contracts/gethwrappers"
@@ -29,16 +28,13 @@ func (s *integrationTestSuite) TestTimelockWorkerListen() {
 	account := NewTestAccount(s.T())
 	s.Logf("new account created: %v", account)
 
-	_, err := s.GethContainer.CreateAccount(ctx, account.hexAddress, account.hexPrivateKey, 1)
+	_, err := s.GethContainer.CreateAccount(ctx, account.HexAddress, account.HexPrivateKey, 1)
 	s.Require().NoError(err)
 
-	// create geth rpc client
 	gethURL := s.GethContainer.HTTPConnStr(s.T(), ctx)
-	client, err := ethclient.DialContext(ctx, gethURL)
-	s.Require().NoError(err)
-	defer client.Close()
+	backend := NewRPCBackend(s.T(), ctx, gethURL)
 
-	transactor := s.KeyedTransactor(account.privateKey, nil)
+	transactor := s.KeyedTransactor(account.PrivateKey, nil)
 
 	tests := []struct {
 		name string
@@ -54,13 +50,14 @@ func (s *integrationTestSuite) TestTimelockWorkerListen() {
 
 			logger := timelockTests.NewTestLogger(zerolog.Nop()) // "zerolog.TestWriter{T: t, Frame: 6}" when debugging
 
-			timelockAddress, _, _, timelockContract := s.DeployTimelock(ctx, transactor, client, account.address, big.NewInt(1))
-			callProxyAddress, _, _, _ := s.DeployCallProxy(ctx, transactor, client, timelockAddress)
+			timelockAddress, _, _, timelockContract := DeployTimelock(s.T(), ctx, transactor, backend,
+				account.Address, big.NewInt(1))
+			callProxyAddress, _, _, _ := DeployCallProxy(s.T(), ctx, transactor, backend, timelockAddress)
 
 			go runTimelockWorker(s.T(), sctx, tt.url, timelockAddress.String(), callProxyAddress.String(),
-				account.hexPrivateKey, big.NewInt(0), int64(60), int64(1), true, logger.Logger())
+				account.HexPrivateKey, big.NewInt(0), int64(60), int64(1), true, logger.Logger())
 
-			s.UpdateDelay(ctx, transactor, client, timelockContract, big.NewInt(10))
+			UpdateDelay(s.T(), ctx, transactor, backend, timelockContract, big.NewInt(10))
 
 			assertCapturedLogMessages(s.T(), logger)
 		})
@@ -74,16 +71,13 @@ func (s *integrationTestSuite) TestTimelockWorkerDryRun() {
 	account := NewTestAccount(s.T())
 	s.Logf("new account created: %v", account)
 
-	_, err := s.GethContainer.CreateAccount(ctx, account.hexAddress, account.hexPrivateKey, 1)
+	_, err := s.GethContainer.CreateAccount(ctx, account.HexAddress, account.HexPrivateKey, 1)
 	s.Require().NoError(err)
 
-	// create geth rpc client
 	gethURL := s.GethContainer.HTTPConnStr(s.T(), ctx)
-	client, err := ethclient.DialContext(ctx, gethURL)
-	s.Require().NoError(err)
-	defer client.Close()
+	backend := NewRPCBackend(s.T(), ctx, gethURL)
 
-	transactor := s.KeyedTransactor(account.privateKey, nil)
+	transactor := s.KeyedTransactor(account.PrivateKey, nil)
 
 	tests := []struct {
 		name   string
@@ -128,18 +122,19 @@ func (s *integrationTestSuite) TestTimelockWorkerDryRun() {
 
 			logger := timelockTests.NewTestLogger(zerolog.Nop()) // "zerolog.TestWriter{T: t, Frame: 6}" when debugging
 
-			timelockAddress, _, _, timelockContract := s.DeployTimelock(tctx, transactor, client, account.address, big.NewInt(1))
-			callProxyAddress, _, _, _ := s.DeployCallProxy(tctx, transactor, client, timelockAddress)
+			timelockAddress, _, _, timelockContract := DeployTimelock(s.T(), tctx, transactor, backend,
+				account.Address, big.NewInt(1))
+			callProxyAddress, _, _, _ := DeployCallProxy(s.T(), tctx, transactor, backend, timelockAddress)
 
 			go runTimelockWorker(s.T(), tctx, gethURL, timelockAddress.String(), callProxyAddress.String(),
-				account.hexPrivateKey, big.NewInt(0), int64(1), int64(1), tt.dryRun, logger.Logger())
+				account.HexPrivateKey, big.NewInt(0), int64(1), int64(1), tt.dryRun, logger.Logger())
 
 			calls := []contracts.RBACTimelockCall{{
 				Target: common.HexToAddress("0x000000000000000000000000000000000000000"),
 				Value:  big.NewInt(1),
 				Data:   hexutil.MustDecode("0x0123456789abcdef"),
 			}}
-			s.ScheduleBatch(tctx, transactor, client, timelockContract, calls, [32]byte{}, [32]byte{}, big.NewInt(1))
+			ScheduleBatch(s.T(), tctx, transactor, backend, timelockContract, calls, [32]byte{}, [32]byte{}, big.NewInt(1))
 
 			tt.assert(s.T(), logger)
 		})

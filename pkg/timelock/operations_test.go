@@ -3,187 +3,75 @@ package timelock
 import (
 	"context"
 	"crypto/ecdsa"
+	"math/big"
 	"reflect"
 	"testing"
+	"time"
 
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core/types"
 	contracts "github.com/smartcontractkit/ccip-owner-contracts/gethwrappers"
+	"github.com/stretchr/testify/require"
+
+	"github.com/smartcontractkit/timelock-worker/tests/integration"
+	test_contracts "github.com/smartcontractkit/timelock-worker/tests/contracts"
 )
 
-func Test_isOperation(t *testing.T) {
-	testWorker := newTestTimelockWorker(t, testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey,
-		testFromBlock, int64(testPollPeriod), int64(testEventListenerPollPeriod), testDryRun, testLogger)
+func Test_is_methods(t *testing.T) {
+	// --- arrange ---
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-	var ctx context.Context
+	account := integration.NewTestAccount(t)
+	backend := integration.NewSimulatedBackend(t, types.GenesisAlloc{
+		account.Address: types.Account{Balance: big.NewInt(1e18)},
+	})
 
-	type args struct {
-		ctx context.Context
-		c   *contracts.RBACTimelock
-		id  [32]byte
-	}
-	tests := []struct {
-		name string
-		args args
-		want bool
-	}{
-		{
-			name: "isOperation: empty, should fail",
-			args: args{
-				ctx: ctx,
-				c:   testWorker.contract,
-				id:  [32]byte{},
-			},
-			want: false,
-		},
-		{
-			name: "isOperation: real operation, should succeed",
-			args: args{
-				ctx: ctx,
-				c:   testWorker.contract,
-				id:  [32]byte{79, 143, 96, 15, 56, 41, 187, 178, 167, 120, 61, 145, 140, 241, 3, 220, 155, 151, 111, 184, 96, 128, 73, 10, 146, 173, 93, 211, 80, 225, 69, 183},
-			},
-			want: true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := isOperation(tt.args.ctx, tt.args.c, tt.args.id); got != tt.want {
-				t.Errorf("isOperation() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
+	chainID, err := backend.ChainID(ctx)
+	require.NoError(t, err)
 
-func Test_isReady(t *testing.T) {
-	testWorker := newTestTimelockWorker(t, testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey,
-		testFromBlock, int64(testPollPeriod), int64(testEventListenerPollPeriod), testDryRun, testLogger)
+	transactor, err := bind.NewKeyedTransactorWithChainID(account.PrivateKey, chainID)
+	require.NoError(t, err)
 
-	var ctx context.Context
+	_, _, _, timelockContract := integration.DeployTimelock(t, ctx, transactor,
+		backend, account.Address, big.NewInt(1))
 
-	type args struct {
-		ctx context.Context
-		c   *contracts.RBACTimelock
-		id  [32]byte
-	}
-	tests := []struct {
-		name string
-		args args
-		want bool
-	}{
-		{
-			name: "isReady: empty, should fail",
-			args: args{
-				ctx: ctx,
-				c:   testWorker.contract,
-				id:  [32]byte{},
-			},
-			want: false,
-		},
-		{
-			name: "isReady: real operation not ready, should fail",
-			args: args{
-				ctx: ctx,
-				c:   testWorker.contract,
-				id:  [32]byte{1, 6, 204, 130, 40, 127, 196, 24, 117, 166, 94, 233, 151, 222, 146, 45, 238, 98, 11, 85, 157, 173, 136, 226, 220, 74, 141, 29, 9, 125, 249, 119},
-			},
-			want: false,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := isReady(tt.args.ctx, tt.args.c, tt.args.id); got != tt.want {
-				t.Errorf("isReady() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
+	storageAddress, _, _, _ := integration.DeployStorage(t, ctx, transactor, backend)
 
-func Test_isDone(t *testing.T) {
-	testWorker := newTestTimelockWorker(t, testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey,
-		testFromBlock, int64(testPollPeriod), int64(testEventListenerPollPeriod), testDryRun, testLogger)
+	predecessor := [32]byte{}
+	salt := [32]byte{}
+	calls := []contracts.RBACTimelockCall{
+		{Target: storageAddress, Value: big.NewInt(0), Data: abiEncodedStoreCall(t, 123)},
+	}
 
-	var ctx context.Context
+	operationId, err := timelockContract.HashOperationBatch(&bind.CallOpts{}, calls, predecessor, salt)
+	require.NoError(t, err)
+	t.Logf("operation id: %v", hexutil.Encode(operationId[:]))
 
-	type args struct {
-		ctx context.Context
-		c   *contracts.RBACTimelock
-		id  [32]byte
-	}
-	tests := []struct {
-		name string
-		args args
-		want bool
-	}{
-		{
-			name: "isDone: empty, should fail",
-			args: args{
-				ctx: ctx,
-				c:   testWorker.contract,
-				id:  [32]byte{},
-			},
-			want: false,
-		},
-		{
-			name: "isDone: real operation, should succeed",
-			args: args{
-				ctx: ctx,
-				c:   testWorker.contract,
-				id:  [32]byte{79, 143, 96, 15, 56, 41, 187, 178, 167, 120, 61, 145, 140, 241, 3, 220, 155, 151, 111, 184, 96, 128, 73, 10, 146, 173, 93, 211, 80, 225, 69, 183},
-			},
-			want: true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := isDone(tt.args.ctx, tt.args.c, tt.args.id); got != tt.want {
-				t.Errorf("isDone() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
+	// --- act ---
+	integration.ScheduleBatch(t, ctx, transactor, backend, timelockContract, calls,
+		predecessor, salt, big.NewInt(1))
 
-func Test_isPending(t *testing.T) {
-	testWorker := newTestTimelockWorker(t, testNodeURL, testTimelockAddress, testCallProxyAddress, testPrivateKey,
-		testFromBlock, int64(testPollPeriod), int64(testEventListenerPollPeriod), testDryRun, testLogger)
+	// --- assert ---
+	require.True(t, isOperation(ctx, timelockContract, operationId))
+	require.True(t, isPending(ctx, timelockContract, operationId))
+	require.False(t, isReady(ctx, timelockContract, operationId))
+	require.False(t, isDone(ctx, timelockContract, operationId))
 
-	var ctx context.Context
+	// generate a new block then check isReady again
+	backend.Commit()
+	require.True(t, isReady(ctx, timelockContract, operationId))
+	require.True(t, isPending(ctx, timelockContract, operationId))
+	require.False(t, isDone(ctx, timelockContract, operationId))
 
-	type args struct {
-		ctx context.Context
-		c   *contracts.RBACTimelock
-		id  [32]byte
-	}
-	tests := []struct {
-		name string
-		args args
-		want bool
-	}{
-		{
-			name: "isPending: empty, should fail",
-			args: args{
-				ctx: ctx,
-				c:   testWorker.contract,
-				id:  [32]byte{},
-			},
-			want: false,
-		},
-		{
-			name: "isPending: real operation, should succeed",
-			args: args{
-				ctx: ctx,
-				c:   testWorker.contract,
-				id:  [32]byte{79, 143, 96, 15, 56, 41, 187, 178, 167, 120, 61, 145, 140, 241, 3, 220, 155, 151, 111, 184, 96, 128, 73, 10, 146, 173, 93, 211, 80, 225, 69, 183},
-			},
-			want: false,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := isPending(tt.args.ctx, tt.args.c, tt.args.id); got != tt.want {
-				t.Errorf("isPending() = %v, want %v", got, tt.want)
-			}
-		})
-	}
+	// execute then check isDone again
+	integration.ExecuteBatch(t, ctx, transactor, backend, timelockContract, calls,
+		predecessor, salt)
+	require.True(t, isDone(ctx, timelockContract, operationId))
+	require.False(t, isPending(ctx, timelockContract, operationId))
+	require.False(t, isReady(ctx, timelockContract, operationId))
 }
 
 func Test_privateKeyToAddress(t *testing.T) {
@@ -210,4 +98,17 @@ func Test_privateKeyToAddress(t *testing.T) {
 			}
 		})
 	}
+}
+
+// ----- helpers -----
+
+func abiEncodedStoreCall(t *testing.T, value int64) []byte {
+	t.Helper()
+
+	abi, err := test_contracts.StorageContractMetaData.GetAbi()
+	require.NoError(t, err)
+	encoded, err := abi.Pack("store", big.NewInt(value))
+	require.NoError(t, err)
+
+	return encoded
 }
