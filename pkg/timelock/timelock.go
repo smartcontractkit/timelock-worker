@@ -18,8 +18,8 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rpc"
-	"github.com/rs/zerolog"
 	contracts "github.com/smartcontractkit/ccip-owner-contracts/gethwrappers"
+	"go.uber.org/zap"
 
 	"github.com/smartcontractkit/timelock-worker/pkg/isclosed"
 )
@@ -37,7 +37,7 @@ type Worker struct {
 	pollPeriod         int64
 	listenerPollPeriod int64
 	dryRun             bool
-	logger             *zerolog.Logger
+	logger             *zap.SugaredLogger
 	privateKey         *ecdsa.PrivateKey
 	scheduler          Scheduler
 }
@@ -50,7 +50,7 @@ var validNodeUrlSchemes = []string{"http", "https", "ws", "wss"}
 // It's a singleton, so further executions will retrieve the same timelockWorker.
 func NewTimelockWorker(
 	nodeURL, timelockAddress, callProxyAddress, privateKey string, fromBlock *big.Int,
-	pollPeriod int64, listenerPollPeriod int64, dryRun bool, logger *zerolog.Logger,
+	pollPeriod int64, listenerPollPeriod int64, dryRun bool, logger *zap.SugaredLogger,
 ) (*Worker, error) {
 	// Sanity check on each provided variable before allocating more resources.
 	u, err := url.ParseRequestURI(nodeURL)
@@ -155,14 +155,14 @@ func (tw *Worker) Listen(ctx context.Context) error {
 	// Retrieve historical logs.
 	historyDone, historyCh, err := tw.retrieveHistoricalLogs(ctxwc)
 	if err != nil {
-		tw.logger.Error().Err(err).Msg("failed to retrieve historical logs.")
+		tw.logger.With("error", err).Error("failed to retrieve historical logs.")
 		return err
 	}
 
 	// Retrieve logs asynchronously.
 	newDone, logCh, err := tw.retrieveNewLogs(ctxwc)
 	if err != nil {
-		tw.logger.Error().Err(err).Msg("failed to subscribe and process new logs.")
+		tw.logger.With("error", err).Error("failed to subscribe and process new logs.")
 		return err
 	}
 
@@ -179,8 +179,8 @@ func (tw *Worker) Listen(ctx context.Context) error {
 		cancel()
 	}
 
-	tw.logger.Info().Msg("shutting down timelock-worker")
-	tw.logger.Info().Msg("dumping operation store")
+	tw.logger.Info("shutting down timelock-worker")
+	tw.logger.Info("dumping operation store")
 	tw.scheduler.dumpOperationStore(time.Now)
 
 	// Wait for all goroutines to finish.
@@ -224,7 +224,7 @@ func (tw *Worker) subscribeNewLogs(ctx context.Context) (<-chan struct{}, <-chan
 	// It receives all the new events.
 	sub, err := tw.ethClient.SubscribeFilterLogs(ctx, query, logCh)
 	if err != nil {
-		tw.logger.Error().Msgf("unexpected error while creating subscription: %s", err.Error())
+		tw.logger.Errorf("unexpected error while creating subscription: %s", err.Error())
 		return nil, nil, err
 	}
 
@@ -239,16 +239,16 @@ func (tw *Worker) subscribeNewLogs(ctx context.Context) (<-chan struct{}, <-chan
 				// Check if the error is not nil, because sub.Unsubscribe will
 				// signal the channel sub.Err() to close it, leading to false nil errors.
 				if err != nil {
-					tw.logger.Warn().Msgf("subscription error: %s", err.Error())
+					tw.logger.Warnf("subscription error: %s", err.Error())
 					SetReadyStatus(HealthStatusError)
 					sub.Unsubscribe()
 
 					success := false
 					for try := range maxSubRetries {
-						tw.logger.Warn().Msgf("trying to re-create subscription: %v/%v retry.", try+1, maxSubRetries)
+						tw.logger.Warnf("trying to re-create subscription: %v/%v retry.", try+1, maxSubRetries)
 						sub, err = tw.ethClient.SubscribeFilterLogs(ctx, query, logCh)
 						if err == nil {
-							tw.logger.Info().Msg("subscription successfully recreated.")
+							tw.logger.Info("subscription successfully recreated.")
 							SetReadyStatus(HealthStatusOK)
 							success = true
 
@@ -259,13 +259,13 @@ func (tw *Worker) subscribeNewLogs(ctx context.Context) (<-chan struct{}, <-chan
 					}
 
 					if !success {
-						tw.logger.Error().Msg("failed to recreate subscription after retries: shutting down timelock-worker.")
+						tw.logger.Error("failed to recreate subscription after retries: shutting down timelock-worker.")
 						return
 					}
 				}
 
 			case <-ctx.Done():
-				tw.logger.Debug().Msgf("shutting down subscription")
+				tw.logger.Debug("shutting down subscription")
 				SetReadyStatus(HealthStatusError)
 
 				return
@@ -286,7 +286,7 @@ func (tw *Worker) pollNewLogs(ctx context.Context) (<-chan struct{}, <-chan type
 		defer close(done)
 		defer close(logCh)
 
-		tw.logger.Debug().Msgf("polling for new logs every %d seconds", tw.listenerPollPeriod)
+		tw.logger.Debugf("polling for new logs every %d seconds", tw.listenerPollPeriod)
 		ticker := time.NewTicker(time.Duration(tw.listenerPollPeriod) * time.Second)
 		defer ticker.Stop()
 
@@ -297,7 +297,7 @@ func (tw *Worker) pollNewLogs(ctx context.Context) (<-chan struct{}, <-chan type
 			case <-ticker.C:
 				continue
 			case <-ctx.Done():
-				tw.logger.Debug().Msg("context done; stopping pollNewLogs")
+				tw.logger.Debug("context done; stopping pollNewLogs")
 				SetReadyStatus(HealthStatusError)
 
 				return
@@ -318,7 +318,7 @@ func (tw *Worker) retrieveHistoricalLogs(ctx context.Context) (<-chan struct{}, 
 	// FIXME(gustavogama-cll): find a more elegant solution to skip retrieving historical
 	// logs when using the "poll-based" event listener
 	if !tw.ethClient.Client().SupportsSubscriptions() {
-		tw.logger.Debug().Msgf("node does not support subscriptions; skipping historical log")
+		tw.logger.Debug("node does not support subscriptions; skipping historical log")
 		close(done)
 		close(logCh)
 
@@ -340,13 +340,13 @@ func (tw *Worker) retrieveHistoricalLogs(ctx context.Context) (<-chan struct{}, 
 		for _, log := range filter {
 			select {
 			case logCh <- log:
-				tw.logger.Debug().Msgf("processing historical log: %+v\n", log)
+				tw.logger.Debugf("processing historical log: %+v\n", log)
 			case <-ctx.Done():
-				tw.logger.Debug().Msg("stopped while processing historical logs: incomplete retrieval.")
+				tw.logger.Debug("stopped while processing historical logs: incomplete retrieval.")
 				return
 			}
 		}
-		tw.logger.Debug().Msg("retrieved correctly all historical logs")
+		tw.logger.Debug("retrieved correctly all historical logs")
 	}()
 
 	return done, logCh, nil
@@ -356,21 +356,21 @@ func (tw *Worker) fetchAndDispatchLogs(ctx context.Context, logCh chan types.Log
 	query := tw.setupFilterQuery(lastBlock)
 	logs, err := tw.ethClient.FilterLogs(ctx, query)
 	if err != nil {
-		tw.logger.Error().Err(err).Msg("unable to fetch logs from eth client")
+		tw.logger.With("error", err).Error("unable to fetch logs from eth client")
 		SetReadyStatus(HealthStatusError) // FIXME(gustavogama-cll): wait for N errors before setting status
 
 		return lastBlock
 	}
-	tw.logger.Debug().Msgf("fetched %d log entries starting from block %d", len(logs), lastBlock)
+	tw.logger.Debugf("fetched %d log entries starting from block %d", len(logs), lastBlock)
 	SetReadyStatus(HealthStatusOK)
 
 	for _, log := range logs {
 		lastBlock = new(big.Int).SetUint64(max(lastBlock.Uint64(), log.BlockNumber+1))
 		select {
 		case logCh <- log:
-			tw.logger.Debug().Interface("log", log).Msg("dispatching log")
+			tw.logger.With("log", log).Debug("dispatching log")
 		case <-ctx.Done():
-			tw.logger.Debug().Msg("stopped while dispatching logs: incomplete retrieval.")
+			tw.logger.Debug("stopped while dispatching logs: incomplete retrieval.")
 			break
 		}
 	}
@@ -407,7 +407,7 @@ func (tw *Worker) processLogs(ctx context.Context, oldLog, newLog <-chan types.L
 				}
 
 				if err := tw.handleLog(ctxwc, log); err != nil {
-					tw.logger.Error().Msgf("error processing new log: %v\n", log)
+					tw.logger.Errorf("error processing new log: %v\n", log)
 				}
 
 			case log, open := <-oldLog:
@@ -419,11 +419,11 @@ func (tw *Worker) processLogs(ctx context.Context, oldLog, newLog <-chan types.L
 				}
 
 				if err := tw.handleLog(ctxwc, log); err != nil {
-					tw.logger.Error().Msgf("error processing historical log: %v\n", log)
+					tw.logger.Errorf("error processing historical log: %v\n", log)
 				}
 
 			case <-ctxwc.Done():
-				tw.logger.Info().Msgf("cancelled processing logs")
+				tw.logger.Info("cancelled processing logs")
 				SetReadyStatus(HealthStatusError)
 
 				return
@@ -463,7 +463,8 @@ func (tw *Worker) handleLog(ctx context.Context, log types.Log) error {
 		}
 
 		if !isDone(ctx, tw.contract, cs.Id) && isOperation(ctx, tw.contract, cs.Id) {
-			tw.logger.Info().Hex(fieldTXHash, cs.Raw.TxHash[:]).Uint64(fieldBlockNumber, cs.Raw.BlockNumber).Msgf("%s received", eventCallScheduled)
+			tw.logger.With(fieldTXHash, fmt.Sprintf("%x", cs.Raw.TxHash[:])).
+				With(fieldBlockNumber, cs.Raw.BlockNumber).Infof("%s received", eventCallScheduled)
 			tw.scheduler.addToScheduler(cs)
 		}
 
@@ -475,7 +476,8 @@ func (tw *Worker) handleLog(ctx context.Context, log types.Log) error {
 		}
 
 		if isDone(ctx, tw.contract, cs.Id) {
-			tw.logger.Info().Hex(fieldTXHash, cs.Raw.TxHash[:]).Uint64(fieldBlockNumber, cs.Raw.BlockNumber).Msgf("%s received, skipping operation", eventCallExecuted)
+			tw.logger.With(fieldTXHash, fmt.Sprintf("%x", cs.Raw.TxHash[:])).
+				With(fieldBlockNumber, cs.Raw.BlockNumber).Infof("%s received, skipping operation", eventCallExecuted)
 			tw.scheduler.delFromScheduler(cs.Id)
 		}
 
@@ -487,11 +489,12 @@ func (tw *Worker) handleLog(ctx context.Context, log types.Log) error {
 		}
 
 		if isDone(ctx, tw.contract, cs.Id) {
-			tw.logger.Info().Hex(fieldTXHash, cs.Raw.TxHash[:]).Uint64(fieldBlockNumber, cs.Raw.BlockNumber).Msgf("%s received, cancelling operation", eventCancelled)
+			tw.logger.With(fieldTXHash, fmt.Sprintf("%x", cs.Raw.TxHash[:])).
+				With(fieldBlockNumber, cs.Raw.BlockNumber).Infof("%s received, cancelling operation", eventCancelled)
 			tw.scheduler.delFromScheduler(cs.Id)
 		}
 	default:
-		tw.logger.Info().Str("event", event.Name).Msgf("discarding event")
+		tw.logger.With("event", event.Name).Info("discarding event")
 	}
 
 	return nil
@@ -499,16 +502,16 @@ func (tw *Worker) handleLog(ctx context.Context, log types.Log) error {
 
 // startLog prints the timelock-worker configuration.
 func (tw *Worker) startLog() {
-	tw.logger.Info().Msgf("timelock-worker started")
-	tw.logger.Info().Msgf("\tTimelock contract address: %v", tw.address[0])
+	tw.logger.Info("timelock-worker started")
+	tw.logger.Infof("\tTimelock contract address: %v", tw.address[0])
 
 	wallet, err := privateKeyToAddress(tw.privateKey)
 	if err != nil {
-		tw.logger.Fatal().Msgf("\tEOA address: unable to determine")
+		tw.logger.Fatal("\tEOA address: unable to determine")
 	}
 
-	tw.logger.Info().Msgf("\tEOA address: %v", wallet)
-	tw.logger.Info().Msgf("\tStarting from block: %v", tw.fromBlock)
-	tw.logger.Info().Msgf("\tPoll Period: %v", time.Duration(tw.pollPeriod*int64(time.Second)).String())
-	tw.logger.Info().Msgf("\tEvent Listener Poll Period: %v", time.Duration(tw.listenerPollPeriod*int64(time.Second)).String())
+	tw.logger.Infof("\tEOA address: %v", wallet)
+	tw.logger.Infof("\tStarting from block: %v", tw.fromBlock)
+	tw.logger.Infof("\tPoll Period: %v", time.Duration(tw.pollPeriod*int64(time.Second)).String())
+	tw.logger.Infof("\tEvent Listener Poll Period: %v", time.Duration(tw.listenerPollPeriod*int64(time.Second)).String())
 }

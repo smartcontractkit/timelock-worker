@@ -3,8 +3,9 @@ package timelock
 import (
 	"math/big"
 
-	"github.com/rs/zerolog"
 	"github.com/samber/lo"
+
+	"github.com/smartcontractkit/timelock-worker/pkg/logger"
 )
 
 var (
@@ -16,5 +17,5 @@ var (
 	testPollPeriod              = 5
 	testEventListenerPollPeriod = 1
 	testDryRun                  = false
-	testLogger                  = lo.ToPtr(zerolog.Nop())
+	testLogger                  = lo.Must(logger.NewLogger("info", "human")).Sugar()
 )

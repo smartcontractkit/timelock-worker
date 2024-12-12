@@ -3,9 +3,9 @@ package cmd
 import (
 	"os"
 
-	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"go.uber.org/zap"
 
 	"github.com/smartcontractkit/timelock-worker/pkg/logger"
 )
@@ -15,9 +15,9 @@ var (
 		Use:   "timelock-worker",
 		Short: "Pull and execute scheduled transactions from Timelock contract",
 	}
-
-	logs             *zerolog.Logger
-	logLevel, output string
+	logs     *zap.Logger
+	logLevel string
+	output   string
 )
 
 func Execute() {
@@ -53,7 +53,11 @@ func configureRootCmd() error {
 }
 
 func initConfig() {
-	// Output hardcoded to JSON
-	logs = logger.Logger(viper.GetString("log-level"), viper.GetString("output"))
-	logs.Debug().Msgf("initialized Logger")
+	var err error
+	logs, err = logger.NewLogger(viper.GetString("log-level"), viper.GetString("output"))
+	if err != nil {
+		panic("unable to create logger")
+	}
+
+	logs.Debug("initialized Logger")
 }

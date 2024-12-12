@@ -27,7 +27,7 @@ func startCommand() *cobra.Command {
 	// Precedence: flags > env variables > timelock.env file.
 	timelockConf, err := cli.NewTimelockCLI()
 	if err != nil {
-		logs.Fatal().Msgf("error initializing configuration: %s", err.Error())
+		logs.Sugar().Fatalf("error initializing configuration: %s", err.Error())
 	}
 	// Set liveStatus to OK on startup.
 	// Set readyStatus to Error on startup.
@@ -54,63 +54,65 @@ func startHandler(cmd *cobra.Command, _ []string) {
 }
 
 func startTimelock(cmd *cobra.Command) {
+	slog := logs.Sugar()
+
 	nodeURL, err := cmd.Flags().GetString("node-url")
 	if err != nil {
-		logs.Fatal().Msgf("value of node-url not set: %s", err.Error())
+		slog.Fatalf("value of node-url not set: %s", err.Error())
 	}
 
 	timelockAddress, err := cmd.Flags().GetString("timelock-address")
 	if err != nil {
-		logs.Fatal().Msgf("value of timelock-address not set: %s", err.Error())
+		slog.Fatalf("value of timelock-address not set: %s", err.Error())
 	}
 
 	callProxyAddress, err := cmd.Flags().GetString("call-proxy-address")
 	if err != nil {
-		logs.Fatal().Msgf("value of call-proxy-address not set: %s", err.Error())
+		slog.Fatalf("value of call-proxy-address not set: %s", err.Error())
 	}
 
 	privateKey, err := cmd.Flags().GetString("private-key")
 	if err != nil {
-		logs.Fatal().Msgf("value of private-key not set: %s", err.Error())
+		slog.Fatalf("value of private-key not set: %s", err.Error())
 	}
 
 	fromBlock, err := cmd.Flags().GetInt64("from-block")
 	if err != nil {
-		logs.Fatal().Msgf("value of from-block not set: %s", err.Error())
+		slog.Fatalf("value of from-block not set: %s", err.Error())
 	}
 
 	pollPeriod, err := cmd.Flags().GetInt64("poll-period")
 	if err != nil {
-		logs.Fatal().Msgf("value of poll-period not set: %s", err.Error())
+		slog.Fatalf("value of poll-period not set: %s", err.Error())
 	}
 
 	eventListenerPollPeriod, err := cmd.Flags().GetInt64("event-listener-poll-period")
 	if err != nil {
-		logs.Fatal().Msgf("value of poll-period not set: %s", err.Error())
+		slog.Fatalf("value of poll-period not set: %s", err.Error())
 	}
 
 	dryRun, err := cmd.Flags().GetBool("dry-run")
 	if err != nil {
-		logs.Fatal().Msgf("value of dry-run not set: %s", err.Error())
+		slog.Fatalf("value of dry-run not set: %s", err.Error())
 	}
 
 	tWorker, err := timelock.NewTimelockWorker(nodeURL, timelockAddress, callProxyAddress, privateKey,
-		big.NewInt(fromBlock), pollPeriod, eventListenerPollPeriod, dryRun, logs)
+		big.NewInt(fromBlock), pollPeriod, eventListenerPollPeriod, dryRun, slog)
 	if err != nil {
-		logs.Fatal().Msgf("error creating the timelock-worker: %s", err.Error())
+		slog.Fatalf("error creating the timelock-worker: %s", err.Error())
 	}
 
 	if err := tWorker.Listen(context.Background()); err != nil {
-		logs.Fatal().Msgf("error while starting timelock-worker: %s", err.Error())
+		slog.Fatalf("error while starting timelock-worker: %s", err.Error())
 	}
 
-	logs.Info().Msg("shutting down timelock-worker")
+	slog.Infof("shutting down timelock-worker")
 }
 
 func startHTTPHealthServer() {
-	timelock.StartHTTPHealthServer(logs)
+	timelock.StartHTTPHealthServer(logs.Sugar())
 }
 
 func startMetricsServer() {
-	timelock.StartMetricsServer(logs)
+	timelock.StartMetricsServer(logs.Sugar())
 }

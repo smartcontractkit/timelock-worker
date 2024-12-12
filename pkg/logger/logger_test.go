@@ -1,58 +1,59 @@
 package logger_test
 
 import (
-	"reflect"
 	"testing"
 
-	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+
 	"github.com/smartcontractkit/timelock-worker/pkg/logger"
-	"github.com/stretchr/testify/assert"
 )
 
-func TestLogger(t *testing.T) {
-	testLogger := logger.Logger("info", "human")
-	assert.NotNil(t, testLogger)
+func Test_NewLogger(t *testing.T) {
+	t.Parallel()
 
-	testType := reflect.TypeOf(testLogger)
-	loggerType := reflect.TypeOf((*zerolog.Logger)(nil))
-
-	if !(loggerType == testType) {
-		t.Errorf("testType does not implement loggerType")
+	tests := []struct {
+		name    string
+		level   string
+		output  string
+		wantErr string
+	}{
+		{
+			name:   "success: info human",
+			level:  "info",
+			output: "human",
+		},
+		{
+			name:   "success: debug json",
+			level:  "info",
+			output: "json",
+		},
+		{
+			name:    "invalid log level",
+			level:   "invalid",
+			output:  "human",
+			wantErr: "unrecognized level: \"invalid\"",
+		},
+		{
+			name: "invalid output",
+			level: "info",
+			output: "invalid",
+			wantErr: "invalid logger output: \"invalid\"",
+		},
 	}
-}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-func TestLoggerJSON(t *testing.T) {
-	testLogger := logger.Logger("debug", "json")
-	assert.NotNil(t, testLogger)
+			logger, err := logger.NewLogger(tt.level, tt.output)
 
-	testType := reflect.TypeOf(testLogger)
-	loggerType := reflect.TypeOf((*zerolog.Logger)(nil))
-
-	if !(loggerType == testType) {
-		t.Errorf("testType does not implement loggerType")
-	}
-}
-
-func TestLoggerWrongLogLevel(t *testing.T) {
-	testLogger := logger.Logger("wrongLogLevel", "human")
-	assert.NotNil(t, testLogger)
-
-	testType := reflect.TypeOf(testLogger)
-	loggerType := reflect.TypeOf((*zerolog.Logger)(nil))
-
-	if !(loggerType == testType) {
-		t.Errorf("testType does not implement loggerType")
-	}
-}
-
-func TestLoggerWrongAll(t *testing.T) {
-	testLogger := logger.Logger("wrongLogLevel", "wrongOutput")
-	assert.NotNil(t, testLogger)
-
-	testType := reflect.TypeOf(testLogger)
-	loggerType := reflect.TypeOf((*zerolog.Logger)(nil))
-
-	if !(loggerType == testType) {
-		t.Errorf("testType does not implement loggerType")
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				require.IsType(t, logger, new(zap.Logger))
+			} else {
+				require.ErrorContains(t, err, tt.wantErr)
+			}
+		})
 	}
 }
