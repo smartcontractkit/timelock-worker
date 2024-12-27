@@ -132,7 +132,7 @@ func (tw *scheduler) addToScheduler(op *contracts.RBACTimelockCallScheduled) {
 
 // delFromScheduler deletes an operation safely from the store.
 func (tw *scheduler) delFromScheduler(op operationKey) {
-	tw.logger.Debugf("de-scheduling operation: %v", op)
+	tw.logger.Debugf("de-scheduling operation: %x", op)
 	tw.del <- op
 }
 
