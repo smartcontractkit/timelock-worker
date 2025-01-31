@@ -88,7 +88,7 @@ func (tw *scheduler) runScheduler(ctx context.Context) <-chan struct{} {
 
 			case op := <-tw.add:
 				tw.mu.Lock()
-				if len(tw.store[op.Id]) <= int(op.Index.Int64()) {
+				for len(tw.store[op.Id]) <= int(op.Index.Int64()) {
 					tw.store[op.Id] = append(tw.store[op.Id], op)
 				}
 				tw.store[op.Id][op.Index.Int64()] = op
