@@ -20,6 +20,7 @@ func startCommand() *cobra.Command {
 
 		nodeURL, privateKey, timelockAddress, callProxyAddress string
 		fromBlock, pollPeriod, eventListenerPollPeriod         int64
+		eventListenerPollSize                                  uint64
 		dryRun                                                 bool
 	)
 
@@ -42,6 +43,7 @@ func startCommand() *cobra.Command {
 	startCmd.Flags().Int64Var(&fromBlock, "from-block", timelockConf.FromBlock, "Start watching from this block")
 	startCmd.Flags().Int64Var(&pollPeriod, "poll-period", timelockConf.PollPeriod, "Poll period in seconds")
 	startCmd.Flags().Int64Var(&eventListenerPollPeriod, "event-listener-poll-period", timelockConf.EventListenerPollPeriod, "Event Listener poll period in seconds")
+	startCmd.Flags().Uint64Var(&eventListenerPollSize, "event-listener-poll-size", timelockConf.EventListenerPollSize, "Number of entries to fetch when polling logs")
 	startCmd.Flags().BoolVar(&dryRun, "dry-run", timelockConf.DryRun, "Enable \"dry run\" mode -- monitor events but don't trigger any calls")
 
 	return &startCmd
@@ -91,13 +93,18 @@ func startTimelock(cmd *cobra.Command) {
 		slog.Fatalf("value of poll-period not set: %s", err.Error())
 	}
 
+	eventListenerPollSize, err := cmd.Flags().GetUint64("event-listener-poll-size")
+	if err != nil {
+		slog.Fatalf("value of event-listener-poll-size not set: %s", err.Error())
+	}
+
 	dryRun, err := cmd.Flags().GetBool("dry-run")
 	if err != nil {
 		slog.Fatalf("value of dry-run not set: %s", err.Error())
 	}
 
 	tWorker, err := timelock.NewTimelockWorker(nodeURL, timelockAddress, callProxyAddress, privateKey,
-		big.NewInt(fromBlock), pollPeriod, eventListenerPollPeriod, dryRun, slog)
+		big.NewInt(fromBlock), pollPeriod, eventListenerPollPeriod, eventListenerPollSize, dryRun, slog)
 	if err != nil {
 		slog.Fatalf("error creating the timelock-worker: %s", err.Error())
 	}

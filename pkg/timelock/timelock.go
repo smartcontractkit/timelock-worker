@@ -36,6 +36,7 @@ type Worker struct {
 	fromBlock          *big.Int
 	pollPeriod         int64
 	listenerPollPeriod int64
+	pollSize           uint64
 	dryRun             bool
 	logger             *zap.SugaredLogger
 	privateKey         *ecdsa.PrivateKey
@@ -50,7 +51,7 @@ var validNodeUrlSchemes = []string{"http", "https", "ws", "wss"}
 // It's a singleton, so further executions will retrieve the same timelockWorker.
 func NewTimelockWorker(
 	nodeURL, timelockAddress, callProxyAddress, privateKey string, fromBlock *big.Int,
-	pollPeriod int64, listenerPollPeriod int64, dryRun bool, logger *zap.SugaredLogger,
+	pollPeriod int64, listenerPollPeriod int64, pollSize uint64, dryRun bool, logger *zap.SugaredLogger,
 ) (*Worker, error) {
 	// Sanity check on each provided variable before allocating more resources.
 	u, err := url.ParseRequestURI(nodeURL)
@@ -76,6 +77,10 @@ func NewTimelockWorker(
 
 	if slices.Contains(httpSchemes, u.Scheme) && listenerPollPeriod <= 0 {
 		return nil, fmt.Errorf("event-listener-poll-period must be a positive non-zero integer: got %d", listenerPollPeriod)
+	}
+
+	if slices.Contains(httpSchemes, u.Scheme) && pollSize == 0 {
+		return nil, fmt.Errorf("event-listener-poll-size must be a positive non-zero integer: got %d", pollSize)
 	}
 
 	if fromBlock.Int64() < big.NewInt(0).Int64() {
@@ -127,6 +132,7 @@ func NewTimelockWorker(
 		fromBlock:          fromBlock,
 		pollPeriod:         pollPeriod,
 		listenerPollPeriod: listenerPollPeriod,
+		pollSize:           pollSize,
 		dryRun:             dryRun,
 		logger:             logger,
 		privateKey:         privateKeyECDSA,
@@ -193,10 +199,11 @@ func (tw *Worker) Listen(ctx context.Context) error {
 }
 
 // setupFilterQuery returns an ethereum.FilterQuery initialized to watch the Timelock contract.
-func (tw *Worker) setupFilterQuery(fromBlock *big.Int) ethereum.FilterQuery {
+func (tw *Worker) setupFilterQuery(fromBlock, toBlock *big.Int) ethereum.FilterQuery {
 	return ethereum.FilterQuery{
 		Addresses: tw.address,
 		FromBlock: fromBlock,
+		ToBlock:   toBlock,
 	}
 }
 
@@ -216,7 +223,7 @@ func (tw *Worker) retrieveNewLogs(ctx context.Context) (<-chan struct{}, <-chan 
 
 // subscribeNewLogs subscribes to a Timelock contract and emit logs through the channel it returns.
 func (tw *Worker) subscribeNewLogs(ctx context.Context) (<-chan struct{}, <-chan types.Log, error) {
-	query := tw.setupFilterQuery(tw.fromBlock)
+	query := tw.setupFilterQuery(tw.fromBlock, nil)
 	logCh := make(chan types.Log)
 	done := make(chan struct{})
 
@@ -291,7 +298,7 @@ func (tw *Worker) pollNewLogs(ctx context.Context) (<-chan struct{}, <-chan type
 		defer ticker.Stop()
 
 		for {
-			lastBlock = tw.fetchAndDispatchLogs(ctx, logCh, lastBlock)
+			lastBlock = tw.fetchAndDispatchLogs(ctx, logCh, lastBlock, nil)
 
 			select {
 			case <-ticker.C:
@@ -311,7 +318,7 @@ func (tw *Worker) pollNewLogs(ctx context.Context) (<-chan struct{}, <-chan type
 // retrieveHistoricalLogs returns a types.Log channel and retrieves all the historical events of a given contract.
 // Once all the logs have been sent into the channel the function returns and the channel is closed.
 func (tw *Worker) retrieveHistoricalLogs(ctx context.Context) (<-chan struct{}, <-chan types.Log, error) {
-	query := tw.setupFilterQuery(tw.fromBlock)
+	query := tw.setupFilterQuery(tw.fromBlock, nil)
 	logCh := make(chan types.Log)
 	done := make(chan struct{})
 
@@ -352,30 +359,48 @@ func (tw *Worker) retrieveHistoricalLogs(ctx context.Context) (<-chan struct{}, 
 	return done, logCh, nil
 }
 
-func (tw *Worker) fetchAndDispatchLogs(ctx context.Context, logCh chan types.Log, lastBlock *big.Int) *big.Int {
-	query := tw.setupFilterQuery(lastBlock)
+func (tw *Worker) fetchAndDispatchLogs(
+	ctx context.Context, logCh chan types.Log, fromBlock, currentChainBlock *big.Int,
+) *big.Int {
+	if currentChainBlock == nil {
+		blockNumber, err := tw.ethClient.BlockNumber(ctx)
+		if err != nil {
+			tw.logger.With("error", err).Error("unable to fetch current block number from eth client")
+		}
+		currentChainBlock = new(big.Int).SetUint64(blockNumber)
+	}
+	toBlock := new(big.Int).SetUint64(min(currentChainBlock.Uint64(), fromBlock.Uint64()+tw.pollSize))
+
+	query := tw.setupFilterQuery(fromBlock, toBlock)
+	tw.logger.Debugf("fetching logs from block %v to block %v", query.FromBlock, query.ToBlock)
 	logs, err := tw.ethClient.FilterLogs(ctx, query)
 	if err != nil {
 		tw.logger.With("error", err).Error("unable to fetch logs from eth client")
 		SetReadyStatus(HealthStatusError) // FIXME(gustavogama-cll): wait for N errors before setting status
 
-		return lastBlock
+		return fromBlock
 	}
-	tw.logger.Debugf("fetched %d log entries starting from block %d", len(logs), lastBlock)
+
+	tw.logger.Debugf("fetched %d log entries from block %d to block %d", len(logs), fromBlock, toBlock)
 	SetReadyStatus(HealthStatusOK)
 
 	for _, log := range logs {
-		lastBlock = new(big.Int).SetUint64(max(lastBlock.Uint64(), log.BlockNumber+1))
 		select {
 		case logCh <- log:
 			tw.logger.With("log", log).Debug("dispatching log")
 		case <-ctx.Done():
 			tw.logger.Debug("stopped while dispatching logs: incomplete retrieval.")
-			break
+			return toBlock
 		}
 	}
 
-	return lastBlock
+	if toBlock.Cmp(currentChainBlock) < 0 {
+		// we haven't reached the current block; re-run same procedure with
+		// the 'toBlock` as the start block
+		return tw.fetchAndDispatchLogs(ctx, logCh, toBlock, currentChainBlock)
+	}
+
+	return toBlock
 }
 
 // processLogs is implemented as a fan-in for all the logs channels, merging all the data and handling logs sequentially.
@@ -512,4 +537,5 @@ func (tw *Worker) startLog() {
 	tw.logger.Infof("\tStarting from block: %v", tw.fromBlock)
 	tw.logger.Infof("\tPoll Period: %v", time.Duration(tw.pollPeriod*int64(time.Second)).String())
 	tw.logger.Infof("\tEvent Listener Poll Period: %v", time.Duration(tw.listenerPollPeriod*int64(time.Second)).String())
+	tw.logger.Infof("\tEvent Listener Poll # Logs%v", tw.pollSize)
 }

@@ -13,7 +13,8 @@ import (
 
 func newTestTimelockWorker(
 	t *testing.T, nodeURL, timelockAddress, callProxyAddress, privateKey string, fromBlock *big.Int,
-	pollPeriod int64, eventListenerPollPeriod int64, dryRun bool, logger *zap.SugaredLogger,
+	pollPeriod int64, eventListenerPollPeriod int64, eventListenerPollSize uint64, dryRun bool,
+	logger *zap.SugaredLogger,
 ) *Worker {
 	assert.NotEmpty(t, nodeURL, "nodeURL is empty. Are environment variabes in const_test.go set?")
 	assert.NotEmpty(t, timelockAddress, "nodeURL is empty. Are environment variabes in const_test.go set?")
@@ -24,7 +25,7 @@ func newTestTimelockWorker(
 	assert.NotNil(t, logger, "logger is nil. Are environment variabes in const_test.go set?")
 
 	tw, err := NewTimelockWorker(nodeURL, timelockAddress, callProxyAddress, privateKey, fromBlock,
-		pollPeriod, eventListenerPollPeriod, dryRun, logger)
+		pollPeriod, eventListenerPollPeriod, eventListenerPollSize, dryRun, logger)
 	require.NoError(t, err)
 	require.NotNil(t, tw)
 
@@ -44,6 +45,7 @@ func TestNewTimelockWorker(t *testing.T) {
 		fromBlock               *big.Int
 		pollPeriod              int64
 		eventListenerPollPeriod int64
+		eventListenerPollSize   uint64
 		dryRun                  bool
 		logger                  *zap.SugaredLogger
 	}
@@ -55,6 +57,7 @@ func TestNewTimelockWorker(t *testing.T) {
 		fromBlock:               big.NewInt(1),
 		pollPeriod:              900,
 		eventListenerPollPeriod: 60,
+		eventListenerPollSize:   1000,
 		dryRun:                  false,
 		logger:                  zap.NewNop().Sugar(),
 	}
@@ -108,6 +111,11 @@ func TestNewTimelockWorker(t *testing.T) {
 			setup:   func(a *argsT) { a.eventListenerPollPeriod = -1 },
 			wantErr: "event-listener-poll-period must be a positive non-zero integer: got -1",
 		},
+		{
+			name:    "failure - bad event listener poll size",
+			setup:   func(a *argsT) { a.eventListenerPollSize = 0 },
+			wantErr: "event-listener-poll-size must be a positive non-zero integer: got 0",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -118,7 +126,7 @@ func TestNewTimelockWorker(t *testing.T) {
 
 			got, err := NewTimelockWorker(args.nodeURL, args.timelockAddress, args.callProxyAddress,
 				args.privateKey, args.fromBlock, args.pollPeriod, args.eventListenerPollPeriod,
-				args.dryRun, args.logger)
+				args.eventListenerPollSize, args.dryRun, args.logger)
 
 			if tt.wantErr == "" {
 				require.NoError(t, err)
@@ -136,7 +144,8 @@ func TestWorker_startLog(t *testing.T) {
 	rpcURL := runRPCServer(t)
 
 	testWorker := newTestTimelockWorker(t, rpcURL, testTimelockAddress, testCallProxyAddress, testPrivateKey,
-		testFromBlock, int64(testPollPeriod), int64(testEventListenerPollPeriod), testDryRun, testLogger)
+		testFromBlock, int64(testPollPeriod), int64(testEventListenerPollPeriod), testEventListenerPollSize,
+		testDryRun, testLogger)
 
 	tests := []struct {
 		name string
