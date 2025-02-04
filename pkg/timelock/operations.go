@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"fmt"
 	"math/big"
+	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
@@ -20,6 +21,9 @@ import (
 // - The operation is ready to be executed
 // Otherwise the operation will throw an info log and wait for a future tick.
 func (tw *Worker) execute(ctx context.Context, op []*contracts.RBACTimelockCallScheduled) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
 	if isReady(ctx, tw.contract, op[0].Id) {
 		tw.logger.Debugf("execute operation %x", op[0].Id)
 
