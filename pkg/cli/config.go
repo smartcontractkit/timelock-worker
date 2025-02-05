@@ -19,6 +19,7 @@ type Config struct {
 	FromBlock               int64  `mapstructure:"FROM_BLOCK"`
 	PollPeriod              int64  `mapstructure:"POLL_PERIOD"`
 	EventListenerPollPeriod int64  `mapstructure:"EVENT_LISTENER_POLL_PERIOD"`
+	EventListenerPollSize   uint64 `mapstructure:"EVENT_LISTENER_POLL_SIZE"`
 	DryRun                  bool   `mapstructure:"DRY_RUN"`
 }
 
@@ -81,6 +82,15 @@ func NewTimelockCLI() (*Config, error) {
 		}
 
 		c.EventListenerPollPeriod = int64(pp)
+	}
+
+	if os.Getenv("EVENT_LISTENER_POLL_SIZE") != "" {
+		pp, err := strconv.Atoi(os.Getenv("EVENT_LISTENER_POLL_SIZE"))
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse EVENT_LISTENER_POLL_SIZE value: %w", err)
+		}
+
+		c.EventListenerPollSize = uint64(pp) //nolint:gosec
 	}
 
 	if os.Getenv("DRY_RUN") != "" {

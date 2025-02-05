@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"math/big"
+	"strings"
 	"testing"
 	"time"
 
@@ -65,7 +66,7 @@ func (s *integrationTestSuite) TestTimelockWorkerListen() {
 			callProxyAddress, _, _, _ := DeployCallProxy(s.T(), ctx, transactor, backend, timelockAddress)
 
 			go runTimelockWorker(s.T(), sctx, tt.url, timelockAddress.String(), callProxyAddress.String(),
-				account.HexPrivateKey, big.NewInt(0), int64(60), int64(1), true, logger)
+				account.HexPrivateKey, big.NewInt(0), int64(60), int64(1), uint64(10), true, logger)
 
 			UpdateDelay(s.T(), ctx, transactor, backend, timelockContract, big.NewInt(10))
 
@@ -123,7 +124,7 @@ func (s *integrationTestSuite) TestTimelockWorkerDryRun() {
 				s.Require().EventuallyWithT(func(t *assert.CollectT) {
 					assertLogMessage(t, logs, "scheduling operation: 371141ec10c0cc52996bed94240931136172d0b46bdc4bceaea1ef76675c1237")
 					assertLogMessage(t, logs, "scheduled operation: 371141ec10c0cc52996bed94240931136172d0b46bdc4bceaea1ef76675c1237")
-				}, 2*time.Second, 100*time.Millisecond)
+				}, 2*time.Second, 100*time.Millisecond, logMessages(logs))
 			},
 		},
 	}
@@ -139,7 +140,7 @@ func (s *integrationTestSuite) TestTimelockWorkerDryRun() {
 			callProxyAddress, _, _, _ := DeployCallProxy(s.T(), tctx, transactor, backend, timelockAddress)
 
 			go runTimelockWorker(s.T(), tctx, gethURL, timelockAddress.String(), callProxyAddress.String(),
-				account.HexPrivateKey, big.NewInt(0), int64(1), int64(1), tt.dryRun, logger)
+				account.HexPrivateKey, big.NewInt(0), int64(1), int64(1), uint64(10), tt.dryRun, logger)
 
 			ScheduleBatch(s.T(), tctx, transactor, backend, timelockContract, calls, [32]byte{}, [32]byte{}, big.NewInt(1))
 
@@ -168,7 +169,7 @@ func (s *integrationTestSuite) TestTimelockWorkerCancelledEvent() {
 	callProxyAddress, _, _, _ := DeployCallProxy(s.T(), ctx, transactor, backend, timelockAddress)
 
 	go runTimelockWorker(s.T(), ctx, gethURL, timelockAddress.String(), callProxyAddress.String(),
-		account.HexPrivateKey, big.NewInt(0), int64(1), int64(1), false, logger)
+		account.HexPrivateKey, big.NewInt(0), int64(1), int64(1), uint64(10), false, logger)
 
 	calls := []contracts.RBACTimelockCall{{
 		Target: common.HexToAddress("0x000000000000000000000000000000000000000"),
@@ -189,16 +190,50 @@ func (s *integrationTestSuite) TestTimelockWorkerCancelledEvent() {
 	assertLogMessage(s.T(), logs, "de-scheduled operation: 371141ec10c0cc52996bed94240931136172d0b46bdc4bceaea1ef76675c1237")
 }
 
+func (s *integrationTestSuite) TestTimelockWorkerPollSize() {
+	// --- arrange ---
+	ctx, cancel := context.WithCancel(s.Ctx)
+	defer cancel()
+
+	account := NewTestAccount(s.T())
+	_, err := s.GethContainer.CreateAccount(ctx, account.HexAddress, account.HexPrivateKey, 1)
+	s.Require().NoError(err)
+	s.Logf("new account created: %v", account)
+
+	gethURL := s.GethContainer.HTTPConnStr(s.T(), ctx)
+	backend := NewRPCBackend(s.T(), ctx, gethURL)
+	transactor := s.KeyedTransactor(account.PrivateKey, nil)
+	logger, logs := timelockTests.NewTestLogger()
+
+	timelockAddress, _, _, _ := DeployTimelock(s.T(), ctx, transactor, backend,
+		account.Address, big.NewInt(1))
+	callProxyAddress, _, _, _ := DeployCallProxy(s.T(), ctx, transactor, backend, timelockAddress)
+
+	time.Sleep(1*time.Second) // wait for a few blocks before starting the timelock worker service
+
+	// --- act ---
+	go runTimelockWorker(s.T(), ctx, gethURL, timelockAddress.String(), callProxyAddress.String(),
+		account.HexPrivateKey, big.NewInt(0), int64(1), int64(1), uint64(2), false, logger)
+
+	// --- assert ---
+	s.Require().EventuallyWithT(func(collect *assert.CollectT) {
+		assertLogMessage(collect, logs, "fetching logs from block 0 to block 2")
+		assertLogMessage(collect, logs, "fetching logs from block 2 to block 4")
+		assertLogMessage(collect, logs, "fetching logs from block 4 to block 6")
+	}, 2*time.Second, 100*time.Millisecond, logMessages(logs))
+}
+
 // ----- helpers -----
 
 func runTimelockWorker(
 	t *testing.T, ctx context.Context, nodeURL, timelockAddress, callProxyAddress, privateKey string,
-	fromBlock *big.Int, pollPeriod int64, listenerPollPeriod int64, dryRun bool, logger *zap.Logger,
+	fromBlock *big.Int, pollPeriod int64, listenerPollPeriod int64, listenerPollSize uint64,
+	dryRun bool, logger *zap.Logger,
 ) {
-	t.Logf("TimelockWorker.Listen(%v, %v, %v, %v, %v, %v, %v)", nodeURL, timelockAddress,
-		callProxyAddress, privateKey, fromBlock, pollPeriod, listenerPollPeriod)
+	t.Logf("TimelockWorker.Listen(%v, %v, %v, %v, %v, %v, %v, %v)", nodeURL, timelockAddress,
+		callProxyAddress, privateKey, fromBlock, pollPeriod, listenerPollPeriod, listenerPollSize)
 	timelockWorker, err := timelock.NewTimelockWorker(nodeURL, timelockAddress,
-		callProxyAddress, privateKey, fromBlock, pollPeriod, listenerPollPeriod, dryRun, logger.Sugar())
+		callProxyAddress, privateKey, fromBlock, pollPeriod, listenerPollPeriod, listenerPollSize, dryRun, logger.Sugar())
 	require.NoError(t, err)
 	require.NotNil(t, timelockWorker)
 
@@ -208,4 +243,12 @@ func runTimelockWorker(
 
 func assertLogMessage(t assert.TestingT, logs *observer.ObservedLogs, message string) {
 	assert.Equal(t, logs.FilterMessage(message).Len(), 1)
+}
+
+func logMessages(logs *observer.ObservedLogs) string {
+	m := make([]string, 0, logs.Len())
+	for _, entry := range logs.All() {
+		m = append(m, entry.Message)
+	}
+	return "LOGS:\n" + strings.Join(m, "\n")
 }

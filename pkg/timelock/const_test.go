@@ -16,6 +16,7 @@ var (
 	testFromBlock               = big.NewInt(0)
 	testPollPeriod              = 5
 	testEventListenerPollPeriod = 1
+	testEventListenerPollSize   = uint64(10)
 	testDryRun                  = false
 	testLogger                  = lo.Must(logger.NewLogger("info", "human")).Sugar()
 )
