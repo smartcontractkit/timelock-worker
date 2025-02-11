@@ -1,6 +1,6 @@
 module github.com/smartcontractkit/timelock-worker
 
-go 1.22.5
+go 1.22
 
 require (
 	github.com/docker/go-connections v0.5.0
