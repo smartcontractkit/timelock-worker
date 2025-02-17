@@ -204,6 +204,7 @@ func (tw *Worker) setupFilterQuery(fromBlock, toBlock *big.Int) ethereum.FilterQ
 		Addresses: tw.address,
 		FromBlock: fromBlock,
 		ToBlock:   toBlock,
+		Topics:    [][]common.Hash{},
 	}
 }
 
