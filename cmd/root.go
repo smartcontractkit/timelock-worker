@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"log"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -43,9 +44,15 @@ func configureRootCmd() error {
 	if err := viper.BindPFlag("log-level", rootCmd.PersistentFlags().Lookup("log-level")); err != nil {
 		return err
 	}
+	if err := viper.BindEnv("log-level", "LOGLEVEL"); err != nil {
+		return err
+	}
 
 	rootCmd.PersistentFlags().StringVarP(&output, "output", "o", "human", "set logging output (human, json)")
 	if err := viper.BindPFlag("output", rootCmd.PersistentFlags().Lookup("output")); err != nil {
+		return err
+	}
+	if err := viper.BindEnv("output", "OUTPUT"); err != nil {
 		return err
 	}
 
@@ -56,7 +63,7 @@ func initConfig() {
 	var err error
 	logs, err = logger.NewLogger(viper.GetString("log-level"), viper.GetString("output"))
 	if err != nil {
-		panic("unable to create logger")
+		log.Fatalf("unable to create logger: %s", err)
 	}
 
 	logs.Debug("initialized Logger")
