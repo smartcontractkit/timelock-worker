@@ -1,5 +1,5 @@
 # Builder image
-FROM quay.io/centos/centos:stream8 as builder
+FROM quay.io/centos/centos:stream8 AS builder
 
 USER root
 
@@ -26,4 +26,4 @@ COPY --from=builder /build/timelock-worker /app/
 WORKDIR /app
 
 ENTRYPOINT ["./timelock-worker"]
-CMD ["start", "--log-level", "${LOGLEVEL:-info}"]
+CMD ["start"]
