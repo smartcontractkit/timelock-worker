@@ -5,7 +5,6 @@ import (
 	"crypto/ecdsa"
 	"fmt"
 	"math/big"
-	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
@@ -21,24 +20,30 @@ import (
 // - The operation is ready to be executed
 // Otherwise the operation will throw an info log and wait for a future tick.
 func (tw *Worker) execute(ctx context.Context, op []*contracts.RBACTimelockCallScheduled) {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	if isReady(ctx, tw.contract, op[0].Id) {
-		tw.logger.Debugf("execute operation %x", op[0].Id)
-
-		tx, err := tw.executeCallSchedule(ctx, &tw.executeContract.RBACTimelockTransactor, op, tw.privateKey)
-		if err != nil || tx == nil {
-			tw.logger.Errorf("execute operation %x error: %s", op[0].Id, err.Error())
-		} else {
-			tw.logger.Infof("execute operation %x success: %s", op[0].Id, tx.Hash())
-
-			if _, err = bind.WaitMined(ctx, tw.ethClient, tx); err != nil {
-				tw.logger.Errorf("execute operation %x error: %s", op[0].Id, err.Error())
-			}
-		}
-	} else {
+	isReady, err := isReady(ctx, tw.contract, op[0].Id)
+	if err != nil {
+		tw.logger.Errorw("unable to read operation %x \"ready\" status: %s", op[0].Id, err.Error())
+		return
+	}
+	if !isReady {
 		tw.logger.Infof("skipping operation %x: not ready", op[0].Id)
+		return
+	}
+
+	tw.logger.Debugf("execute operation %x", op[0].Id)
+
+	tx, err := tw.executeCallSchedule(ctx, &tw.executeContract.RBACTimelockTransactor, op, tw.privateKey)
+	if err != nil || tx == nil {
+		tw.logger.Errorf("execute operation %x error: %s", op[0].Id, err.Error())
+	} else {
+		tw.logger.Infof("execute operation %x success: %s", op[0].Id, tx.Hash())
+
+		_, err := Retry(ctx, func(rctx context.Context) (*types.Receipt, error) {
+			return bind.WaitMined(rctx, tw.ethClient, tx)
+		})
+		if err != nil {
+			tw.logger.Errorf("execute operation %x error: %s", op[0].Id, err.Error())
+		}
 	}
 }
 
@@ -59,15 +64,16 @@ func (tw *Worker) executeCallSchedule(ctx context.Context, c *contracts.RBACTime
 		})
 	}
 
-	chainID, err := tw.ethClient.NetworkID(ctx)
+	chainID, err := Retry(ctx, func(rctx context.Context) (*big.Int, error) {
+		return tw.ethClient.NetworkID(rctx)
+	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get network id")
 	}
 
 	txOpts := &bind.TransactOpts{
-		From:    fromAddress,
-		Signer:  tw.signTx,
-		Context: ctx,
+		From:   fromAddress,
+		Signer: tw.signTx(chainID),
 	}
 
 	// if chainId is zksync-testnet or mainnet use custom gasPrice to enforce legacy tx
@@ -79,74 +85,53 @@ func (tw *Worker) executeCallSchedule(ctx context.Context, c *contracts.RBACTime
 	tw.logger.Infof("Calling execute Batch...")
 	// Execute the tx's with all the computed calls.
 	// Predecessor and salt are the same for all the tx's.
-	tx, err := c.ExecuteBatch(
-		txOpts,
-		calls,
-		cs[0].Predecessor,
-		cs[0].Salt)
-	if err != nil {
-		return nil, err
-	}
-
-	return tx, nil
+	return Retry(ctx, func(rctx context.Context) (*types.Transaction, error) {
+		txOpts.Context = rctx //nolint:fatcontext
+		return c.ExecuteBatch(txOpts, calls, cs[0].Predecessor, cs[0].Salt)
+	})
 }
 
 // isOperation returns a boolean determining if this is a valid operation.
 // It's mostly to be used for sanity checks.
-func isOperation(ctx context.Context, c *contracts.RBACTimelock, id [32]byte) bool {
-	isOp, err := c.IsOperation(&bind.CallOpts{Context: ctx}, id)
-	if err != nil {
-		return false
-	}
-
-	return isOp
+func isOperation(ctx context.Context, c *contracts.RBACTimelock, id [32]byte) (bool, error) {
+	return Retry(ctx, func(rctx context.Context) (bool, error) {
+		return c.IsOperation(&bind.CallOpts{Context: rctx}, id)
+	})
 }
 
 // isReady returns if the schedule operation is ready.
 // Not applicable to other operation types.
-func isReady(ctx context.Context, c *contracts.RBACTimelock, id [32]byte) bool {
-	isReady, err := c.IsOperationReady(&bind.CallOpts{Context: ctx}, id)
-	if err != nil {
-		return false
-	}
-
-	return isReady
+func isReady(ctx context.Context, c *contracts.RBACTimelock, id [32]byte) (bool, error) {
+	return Retry(ctx, func(rctx context.Context) (bool, error) {
+		return c.IsOperationReady(&bind.CallOpts{Context: rctx}, id)
+	})
 }
 
 // isDone returns true when the operation has been completed.
-func isDone(ctx context.Context, c *contracts.RBACTimelock, id [32]byte) bool {
-	isDone, err := c.IsOperationDone(&bind.CallOpts{Context: ctx}, id)
-	if err != nil {
-		return false
-	}
-
-	return isDone
+func isDone(ctx context.Context, c *contracts.RBACTimelock, id [32]byte) (bool, error) {
+	return Retry(ctx, func(rctx context.Context) (bool, error) {
+		return c.IsOperationDone(&bind.CallOpts{Context: rctx}, id)
+	})
 }
 
 // isReady returns if the schedule operation is pending.
 // Not applicable to other operation types.
-func isPending(ctx context.Context, c *contracts.RBACTimelock, id [32]byte) bool {
-	isPending, err := c.IsOperationPending(&bind.CallOpts{Context: ctx}, id)
-	if err != nil {
-		return false
-	}
-
-	return isPending
+func isPending(ctx context.Context, c *contracts.RBACTimelock, id [32]byte) (bool, error) {
+	return Retry(ctx, func(rctx context.Context) (bool, error) {
+		return c.IsOperationPending(&bind.CallOpts{Context: rctx}, id)
+	})
 }
 
 // signTx is a function that implements the type SignerFn, so can be passed as a Signer method.
-func (tw *Worker) signTx(address common.Address, tx *types.Transaction) (*types.Transaction, error) {
-	chainID, err := tw.ethClient.NetworkID(context.Background())
-	if err != nil {
-		return nil, err
-	}
+func (tw *Worker) signTx(chainID *big.Int) bind.SignerFn {
+	return func(address common.Address, tx *types.Transaction) (*types.Transaction, error) {
+		signedTx, err := types.SignTx(tx, types.LatestSignerForChainID(chainID), tw.privateKey)
+		if err != nil {
+			return nil, err
+		}
 
-	signedTx, err := types.SignTx(tx, types.LatestSignerForChainID(chainID), tw.privateKey)
-	if err != nil {
-		return nil, err
+		return signedTx, nil
 	}
-
-	return signedTx, nil
 }
 
 // privateKeyToAddress is an util function to calculate the address of a given private key.
