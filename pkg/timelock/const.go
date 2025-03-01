@@ -13,6 +13,7 @@ const (
 
 	fieldTXHash      string = "TX Hash"
 	fieldBlockNumber string = "Block Number"
+	operationID      string = "Operation ID"
 
 	logPath         string = "/tmp/"
 	logFile         string = "timelock-worker.log"
