@@ -5,7 +5,7 @@ go 1.22
 require (
 	github.com/docker/go-connections v0.5.0
 	github.com/ethereum/go-ethereum v1.13.15
-	github.com/google/go-cmp v0.6.0
+	github.com/google/go-cmp v0.7.0
 	github.com/prometheus/client_golang v1.19.1
 	github.com/samber/lo v1.47.0
 	github.com/smartcontractkit/ccip-owner-contracts v0.0.0-20240917103524-56f1a8d2cd4b
