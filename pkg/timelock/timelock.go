@@ -364,9 +364,12 @@ func (tw *Worker) fetchAndDispatchLogs(
 	ctx context.Context, logCh chan types.Log, fromBlock, currentChainBlock *big.Int,
 ) *big.Int {
 	if currentChainBlock == nil {
-		blockNumber, err := tw.ethClient.BlockNumber(ctx)
+		blockNumber, err := Retry(ctx, func(rctx context.Context) (uint64, error) {
+			return tw.ethClient.BlockNumber(ctx)
+		})
 		if err != nil {
 			tw.logger.With("error", err).Error("unable to fetch current block number from eth client")
+			return currentChainBlock
 		}
 		currentChainBlock = new(big.Int).SetUint64(blockNumber)
 	}
@@ -374,7 +377,9 @@ func (tw *Worker) fetchAndDispatchLogs(
 
 	query := tw.setupFilterQuery(fromBlock, toBlock)
 	tw.logger.Debugf("fetching logs from block %v to block %v", query.FromBlock, query.ToBlock)
-	logs, err := tw.ethClient.FilterLogs(ctx, query)
+	logs, err := Retry(ctx, func(rctx context.Context) ([]types.Log, error) {
+		return tw.ethClient.FilterLogs(rctx, query)
+	})
 	if err != nil {
 		tw.logger.With("error", err).Error("unable to fetch logs from eth client")
 		SetReadyStatus(HealthStatusError) // FIXME(gustavogama-cll): wait for N errors before setting status
@@ -474,52 +479,96 @@ func (tw *Worker) handleLog(ctx context.Context, log types.Log) error {
 	if err != nil {
 		return err
 	}
-
 	if event == nil {
 		return fmt.Errorf("event is null")
 	}
 
 	switch event.Name {
-	// A CallScheduled event should be added to an scheduler only if it's not already done
-	// and it's a valid Operation.
 	case eventCallScheduled:
-		cs, err := tw.contract.ParseCallScheduled(log)
-		if err != nil {
-			return err
-		}
-
-		if !isDone(ctx, tw.contract, cs.Id) && isOperation(ctx, tw.contract, cs.Id) {
-			tw.logger.With(fieldTXHash, fmt.Sprintf("%x", cs.Raw.TxHash[:])).
-				With(fieldBlockNumber, cs.Raw.BlockNumber).Infof("%s received", eventCallScheduled)
-			tw.scheduler.addToScheduler(cs)
-		}
-
-		// A CallExecuted which is in Done status should delete the task in the scheduler store.
+		err = tw.handleEventScheduled(ctx, log)
 	case eventCallExecuted:
-		cs, err := tw.contract.ParseCallExecuted(log)
-		if err != nil {
-			return err
-		}
-
-		if isDone(ctx, tw.contract, cs.Id) {
-			tw.logger.With(fieldTXHash, fmt.Sprintf("%x", cs.Raw.TxHash[:])).
-				With(fieldBlockNumber, cs.Raw.BlockNumber).Infof("%s received, skipping operation", eventCallExecuted)
-			tw.scheduler.delFromScheduler(cs.Id)
-		}
-
-		// A Cancelled which is in Done status should delete the task in the scheduler store.
+		err = tw.handleEventExecuted(ctx, log)
 	case eventCancelled:
-		cs, err := tw.contract.ParseCancelled(log)
-		if err != nil {
-			return err
-		}
-
-		tw.logger.With(fieldTXHash, fmt.Sprintf("%x", cs.Raw.TxHash[:])).
-			With(fieldBlockNumber, cs.Raw.BlockNumber).Infof("%s received, cancelling operation", eventCancelled)
-		tw.scheduler.delFromScheduler(cs.Id)
+		err = tw.handleEventCancelled(ctx, log)
 	default:
 		tw.logger.With("event", event.Name).Info("discarding event")
 	}
+
+	return err
+}
+
+// A CallScheduled event should be added to an scheduler only if it's not already done
+// and it's a valid Operation.
+func (tw *Worker) handleEventScheduled(ctx context.Context, log types.Log) error {
+	cs, err := tw.contract.ParseCallScheduled(log)
+	if err != nil {
+		return fmt.Errorf("failed to parse CallScheduled log: %w", err)
+	}
+
+	logger := tw.logger.With(fieldTXHash, fmt.Sprintf("%x", cs.Raw.TxHash[:])).
+		With(fieldBlockNumber, cs.Raw.BlockNumber).
+		With(operationID, fmt.Sprintf("%x", cs.Id))
+
+	isDone, err := isDone(ctx, tw.contract, cs.Id)
+	if err != nil {
+		return fmt.Errorf("timelock.isDone call failed (operation id: %x)", cs.Id)
+	}
+
+	if !isDone {
+		isOp, err := isOperation(ctx, tw.contract, cs.Id)
+		if err != nil {
+			return fmt.Errorf("timelock.isOperation call failed (operation id: %x)", cs.Id)
+		}
+
+		if isOp {
+			logger.Infof("%s received", eventCallScheduled)
+			tw.scheduler.addToScheduler(cs)
+		} else {
+			logger.Warn("invalid operation")
+		}
+	}
+
+	return nil
+}
+
+// A CallExecuted which is in Done status should delete the task in the scheduler store.
+func (tw *Worker) handleEventExecuted(ctx context.Context, log types.Log) error {
+	cs, err := tw.contract.ParseCallExecuted(log)
+	if err != nil {
+		return fmt.Errorf("failed to parse CallExecuted log: %w", err)
+	}
+
+	logger := tw.logger.With(fieldTXHash, fmt.Sprintf("%x", cs.Raw.TxHash[:])).
+		With(fieldBlockNumber, cs.Raw.BlockNumber).
+		With(operationID, fmt.Sprintf("%x", cs.Id))
+
+	isDone, err := isDone(ctx, tw.contract, cs.Id)
+	if err != nil {
+		return fmt.Errorf("timelock.isDone call failed (operation id: %x)", cs.Id)
+	}
+
+	if isDone {
+		logger.Infof("%s received, deleting operation from scheduler", eventCallExecuted)
+		tw.scheduler.delFromScheduler(cs.Id)
+	} else {
+		logger.Warn("operation not done; skipping deletion from scheduler")
+	}
+
+	return nil
+}
+
+// A Cancelled which is in Done status should delete the task in the scheduler store.
+func (tw *Worker) handleEventCancelled(_ context.Context, log types.Log) error {
+	cs, err := tw.contract.ParseCancelled(log)
+	if err != nil {
+		return fmt.Errorf("failed to parse Cancelled log: %w", err)
+	}
+
+	tw.logger.With(fieldTXHash, fmt.Sprintf("%x", cs.Raw.TxHash[:])).
+		With(fieldBlockNumber, cs.Raw.BlockNumber).
+		With(operationID, fmt.Sprintf("%x", cs.Id)).
+		Infof("%s received, cancelling operation", eventCancelled)
+	tw.scheduler.delFromScheduler(cs.Id)
 
 	return nil
 }
