@@ -18,10 +18,10 @@ func startCommand() *cobra.Command {
 			Run:   startHandler,
 		}
 
-		nodeURL, privateKey, timelockAddress, callProxyAddress string
-		fromBlock, pollPeriod, eventListenerPollPeriod         int64
-		eventListenerPollSize                                  uint64
-		dryRun                                                 bool
+		nodeURL, privateKey, timelockAddress, callProxyAddress  string
+		fromBlock, toBlock, pollPeriod, eventListenerPollPeriod int64
+		eventListenerPollSize                                   uint64
+		dryRun                                                  bool
 	)
 
 	// Initialize timelock-worker configuration.
@@ -41,6 +41,7 @@ func startCommand() *cobra.Command {
 	startCmd.Flags().StringVarP(&callProxyAddress, "call-proxy-address", "f", timelockConf.CallProxyAddress, "Address of the target CallProxyAddress contract")
 	startCmd.Flags().StringVarP(&privateKey, "private-key", "k", timelockConf.PrivateKey, "Private key used to execute transactions")
 	startCmd.Flags().Int64Var(&fromBlock, "from-block", timelockConf.FromBlock, "Start watching from this block")
+	startCmd.Flags().Int64Var(&toBlock, "to-block", -1, "Stop watching at this block (default: watch until the end of the chain)")
 	startCmd.Flags().Int64Var(&pollPeriod, "poll-period", timelockConf.PollPeriod, "Poll period in seconds")
 	startCmd.Flags().Int64Var(&eventListenerPollPeriod, "event-listener-poll-period", timelockConf.EventListenerPollPeriod, "Event Listener poll period in seconds")
 	startCmd.Flags().Uint64Var(&eventListenerPollSize, "event-listener-poll-size", timelockConf.EventListenerPollSize, "Number of entries to fetch when polling logs")
@@ -83,6 +84,11 @@ func startTimelock(cmd *cobra.Command) {
 		slog.Fatalf("value of from-block not set: %s", err.Error())
 	}
 
+	toBlock, err := cmd.Flags().GetInt64("to-block")
+	if err != nil {
+		slog.Fatalf("value of to-block not set: %s", err.Error())
+	}
+
 	pollPeriod, err := cmd.Flags().GetInt64("poll-period")
 	if err != nil {
 		slog.Fatalf("value of poll-period not set: %s", err.Error())
@@ -104,7 +110,7 @@ func startTimelock(cmd *cobra.Command) {
 	}
 
 	tWorker, err := timelock.NewTimelockWorker(nodeURL, timelockAddress, callProxyAddress, privateKey,
-		big.NewInt(fromBlock), pollPeriod, eventListenerPollPeriod, eventListenerPollSize, dryRun, slog)
+		big.NewInt(fromBlock), big.NewInt((toBlock)), pollPeriod, eventListenerPollPeriod, eventListenerPollSize, dryRun, slog)
 	if err != nil {
 		slog.Fatalf("error creating the timelock-worker: %s", err.Error())
 	}

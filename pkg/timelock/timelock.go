@@ -34,6 +34,7 @@ type Worker struct {
 	abi                *abi.ABI
 	address            []common.Address
 	fromBlock          *big.Int
+	toBlock            *big.Int
 	pollPeriod         int64
 	listenerPollPeriod int64
 	pollSize           uint64
@@ -50,7 +51,7 @@ var validNodeUrlSchemes = []string{"http", "https", "ws", "wss"}
 // NewTimelockWorker initializes and returns a timelockWorker.
 // It's a singleton, so further executions will retrieve the same timelockWorker.
 func NewTimelockWorker(
-	nodeURL, timelockAddress, callProxyAddress, privateKey string, fromBlock *big.Int,
+	nodeURL, timelockAddress, callProxyAddress, privateKey string, fromBlock *big.Int, toBlock *big.Int,
 	pollPeriod int64, listenerPollPeriod int64, pollSize uint64, dryRun bool, logger *zap.SugaredLogger,
 ) (*Worker, error) {
 	// Sanity check on each provided variable before allocating more resources.
@@ -85,6 +86,10 @@ func NewTimelockWorker(
 
 	if fromBlock.Int64() < big.NewInt(0).Int64() {
 		return nil, fmt.Errorf("from block can't be a negative number (minimum value 0): got %d", fromBlock.Int64())
+	}
+
+	if toBlock.Int64() < big.NewInt(0).Int64() {
+		return nil, fmt.Errorf("to block can't be a negative number (minimum value 0): got %d", toBlock.Int64())
 	}
 
 	if _, err := crypto.HexToECDSA(privateKey); err != nil {
@@ -130,6 +135,7 @@ func NewTimelockWorker(
 		abi:                timelockABI,
 		address:            []common.Address{common.HexToAddress(timelockAddress)},
 		fromBlock:          fromBlock,
+		toBlock:            toBlock,
 		pollPeriod:         pollPeriod,
 		listenerPollPeriod: listenerPollPeriod,
 		pollSize:           pollSize,
@@ -224,7 +230,7 @@ func (tw *Worker) retrieveNewLogs(ctx context.Context) (<-chan struct{}, <-chan 
 
 // subscribeNewLogs subscribes to a Timelock contract and emit logs through the channel it returns.
 func (tw *Worker) subscribeNewLogs(ctx context.Context) (<-chan struct{}, <-chan types.Log, error) {
-	query := tw.setupFilterQuery(tw.fromBlock, nil)
+	query := tw.setupFilterQuery(tw.fromBlock, tw.toBlock)
 	logCh := make(chan types.Log)
 	done := make(chan struct{})
 
@@ -287,6 +293,7 @@ func (tw *Worker) subscribeNewLogs(ctx context.Context) (<-chan struct{}, <-chan
 // pollNewLogs periodically retrieves logs from the Timelock and emit them through the channel it returns.
 func (tw *Worker) pollNewLogs(ctx context.Context) (<-chan struct{}, <-chan types.Log, error) {
 	lastBlock := tw.fromBlock
+	toBlock := tw.toBlock
 	logCh := make(chan types.Log)
 	done := make(chan struct{})
 
@@ -299,7 +306,7 @@ func (tw *Worker) pollNewLogs(ctx context.Context) (<-chan struct{}, <-chan type
 		defer ticker.Stop()
 
 		for {
-			lastBlock = tw.fetchAndDispatchLogs(ctx, logCh, lastBlock, nil)
+			lastBlock = tw.fetchAndDispatchLogs(ctx, logCh, lastBlock, toBlock)
 
 			select {
 			case <-ticker.C:
@@ -319,7 +326,7 @@ func (tw *Worker) pollNewLogs(ctx context.Context) (<-chan struct{}, <-chan type
 // retrieveHistoricalLogs returns a types.Log channel and retrieves all the historical events of a given contract.
 // Once all the logs have been sent into the channel the function returns and the channel is closed.
 func (tw *Worker) retrieveHistoricalLogs(ctx context.Context) (<-chan struct{}, <-chan types.Log, error) {
-	query := tw.setupFilterQuery(tw.fromBlock, nil)
+	query := tw.setupFilterQuery(tw.fromBlock, tw.toBlock)
 	logCh := make(chan types.Log)
 	done := make(chan struct{})
 
@@ -585,6 +592,7 @@ func (tw *Worker) startLog() {
 
 	tw.logger.Infof("\tEOA address: %v", wallet)
 	tw.logger.Infof("\tStarting from block: %v", tw.fromBlock)
+	tw.logger.Infof("\tEnding at block: %v", tw.toBlock)
 	tw.logger.Infof("\tPoll Period: %v", time.Duration(tw.pollPeriod*int64(time.Second)).String())
 	tw.logger.Infof("\tEvent Listener Poll Period: %v", time.Duration(tw.listenerPollPeriod*int64(time.Second)).String())
 	tw.logger.Infof("\tEvent Listener Poll # Logs%v", tw.pollSize)
