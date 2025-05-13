@@ -4,8 +4,10 @@ import (
 	"os"
 	"testing"
 
-	"github.com/smartcontractkit/timelock-worker/pkg/cli"
+	chain_selectors "github.com/smartcontractkit/chain-selectors"
 	"github.com/stretchr/testify/require"
+
+	"github.com/smartcontractkit/timelock-worker/pkg/cli"
 )
 
 func Test_NewTimelockCLI(t *testing.T) {
@@ -39,6 +41,7 @@ func Test_NewTimelockCLI(t *testing.T) {
 			},
 			want: &cli.Config{
 				NodeURL:                 "wss://goerli/test",
+				ChainFamily:             chain_selectors.FamilyEVM,
 				TimelockAddress:         "0x12345",
 				CallProxyAddress:        "0x67890",
 				PrivateKey:              "9876543210",
@@ -76,6 +79,7 @@ func Test_NewTimelockCLI(t *testing.T) {
 			},
 			want: &cli.Config{
 				NodeURL:                 "http://node.url/path",
+				ChainFamily:             chain_selectors.FamilyEVM,
 				TimelockAddress:         "0x111111",
 				CallProxyAddress:        "0x222222",
 				PrivateKey:              "333333",
@@ -105,6 +109,7 @@ func Test_NewTimelockCLI(t *testing.T) {
 			},
 			want: &cli.Config{
 				NodeURL:                 "wss://goerli/test",
+				ChainFamily:             chain_selectors.FamilyEVM,
 				TimelockAddress:         "0x12345",
 				CallProxyAddress:        "0x67890",
 				PrivateKey:              "333333",
@@ -152,6 +157,60 @@ func Test_NewTimelockCLI(t *testing.T) {
 				t.Setenv("EVENT_LISTENER_POLL_PERIOD", "invalid")
 			},
 			wantErr: "unable to parse EVENT_LISTENER_POLL_PERIOD value:",
+		},
+		{
+			name: "defaults to evm if CHAIN_FAMILY is not set",
+			setup: func(t *testing.T) {
+				unsetenvs(t, "CHAIN_FAMILY")
+				t.Setenv("NODE_URL", "http://localhost")
+				t.Setenv("TIMELOCK_ADDRESS", "0xabc")
+				t.Setenv("CALL_PROXY_ADDRESS", "0xdef")
+				t.Setenv("PRIVATE_KEY", "123")
+				t.Setenv("FROM_BLOCK", "10")
+				t.Setenv("POLL_PERIOD", "15")
+				t.Setenv("EVENT_LISTENER_POLL_PERIOD", "20")
+				t.Setenv("EVENT_LISTENER_POLL_SIZE", "100")
+				t.Setenv("DRY_RUN", "true")
+			},
+			want: &cli.Config{
+				NodeURL:                 "http://localhost",
+				ChainFamily:             "evm",
+				TimelockAddress:         "0xabc",
+				CallProxyAddress:        "0xdef",
+				PrivateKey:              "123",
+				FromBlock:               10,
+				PollPeriod:              15,
+				EventListenerPollPeriod: 20,
+				EventListenerPollSize:   100,
+				DryRun:                  true,
+			},
+		},
+		{
+			name: "overrides ChainFamily from environment",
+			setup: func(t *testing.T) {
+				t.Setenv("CHAIN_FAMILY", "solana")
+				t.Setenv("NODE_URL", "http://solana.node")
+				t.Setenv("TIMELOCK_ADDRESS", "0xsolana")
+				t.Setenv("CALL_PROXY_ADDRESS", "0xproxy")
+				t.Setenv("PRIVATE_KEY", "solana_key")
+				t.Setenv("FROM_BLOCK", "1")
+				t.Setenv("POLL_PERIOD", "2")
+				t.Setenv("EVENT_LISTENER_POLL_PERIOD", "3")
+				t.Setenv("EVENT_LISTENER_POLL_SIZE", "4")
+				t.Setenv("DRY_RUN", "yes")
+			},
+			want: &cli.Config{
+				NodeURL:                 "http://solana.node",
+				ChainFamily:             "solana",
+				TimelockAddress:         "0xsolana",
+				CallProxyAddress:        "0xproxy",
+				PrivateKey:              "solana_key",
+				FromBlock:               1,
+				PollPeriod:              2,
+				EventListenerPollPeriod: 3,
+				EventListenerPollSize:   4,
+				DryRun:                  true,
+			},
 		},
 	}
 	for _, tt := range tests {
