@@ -15,7 +15,7 @@ func newTestTimelockWorker(
 	t *testing.T, nodeURL, timelockAddress, callProxyAddress, privateKey string, fromBlock *big.Int,
 	pollPeriod int64, eventListenerPollPeriod int64, eventListenerPollSize uint64, dryRun bool,
 	logger *zap.SugaredLogger,
-) *Worker {
+) *WorkerEVM {
 	assert.NotEmpty(t, nodeURL, "nodeURL is empty. Are environment variabes in const_test.go set?")
 	assert.NotEmpty(t, timelockAddress, "nodeURL is empty. Are environment variabes in const_test.go set?")
 	assert.NotEmpty(t, callProxyAddress, "callProxyAddress is empty. Are environment variabes in const_test.go set?")
@@ -130,7 +130,7 @@ func TestNewTimelockWorker(t *testing.T) {
 
 			if tt.wantErr == "" {
 				require.NoError(t, err)
-				require.IsType(t, &Worker{}, got)
+				require.IsType(t, &WorkerEVM{}, got)
 			} else {
 				require.ErrorContains(t, err, tt.wantErr)
 			}

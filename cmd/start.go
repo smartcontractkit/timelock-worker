@@ -14,7 +14,7 @@ func startCommand() *cobra.Command {
 	var (
 		startCmd = cobra.Command{
 			Use:   "start",
-			Short: "Starts the Timelock Worker daemon",
+			Short: "Starts the Timelock WorkerEVM daemon",
 			Run:   startHandler,
 		}
 
