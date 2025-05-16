@@ -42,7 +42,6 @@ func startCommand() *cobra.Command {
 	startCmd.Flags().StringVarP(&nodeURL, "node-url", "n", timelockConf.NodeURL, "RPC Endpoint for the target blockchain")
 	startCmd.Flags().StringVarP(&chainFamily, "chain-family", "n", timelockConf.ChainFamily, "Chain family of the target blockchain (evm, solana)")
 	startCmd.Flags().StringVarP(&timelockAddress, "timelock-address", "a", timelockConf.TimelockAddress, "Address of the target Timelock contract")
-	startCmd.Flags().StringVarP(&timelockAddress, "timelock-instance-id", "a", timelockConf.TimelockAddress, "Address of the target Timelock contract")
 	startCmd.Flags().StringVarP(&callProxyAddress, "call-proxy-address", "f", timelockConf.CallProxyAddress, "Address of the target CallProxyAddress contract")
 	startCmd.Flags().StringVarP(&privateKey, "private-key", "k", timelockConf.PrivateKey, "Private key used to execute transactions")
 	startCmd.Flags().Int64Var(&fromBlock, "from-block", timelockConf.FromBlock, "Start watching from this block")
