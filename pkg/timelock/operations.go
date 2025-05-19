@@ -86,7 +86,7 @@ func (tw *Worker) executeCallSchedule(ctx context.Context, c *contracts.RBACTime
 	// Execute the tx's with all the computed calls.
 	// Predecessor and salt are the same for all the tx's.
 	return Retry(ctx, func(rctx context.Context) (*types.Transaction, error) {
-		txOpts.Context = rctx //nolint:fatcontext
+		txOpts.Context = rctx
 		return c.ExecuteBatch(txOpts, calls, cs[0].Predecessor, cs[0].Salt)
 	})
 }

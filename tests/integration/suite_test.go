@@ -7,5 +7,5 @@ import (
 )
 
 func TestIntegrationTestSuite(t *testing.T) {
-    suite.Run(t, new(integrationTestSuite))
+	suite.Run(t, new(integrationTestSuite))
 }
