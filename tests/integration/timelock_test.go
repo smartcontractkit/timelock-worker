@@ -209,7 +209,7 @@ func (s *integrationTestSuite) TestTimelockWorkerPollSize() {
 		account.Address, big.NewInt(1))
 	callProxyAddress, _, _, _ := DeployCallProxy(s.T(), ctx, transactor, backend, timelockAddress)
 
-	time.Sleep(1*time.Second) // wait for a few blocks before starting the timelock worker service
+	time.Sleep(1 * time.Second) // wait for a few blocks before starting the timelock worker service
 
 	// --- act ---
 	go runTimelockWorker(s.T(), ctx, gethURL, timelockAddress.String(), callProxyAddress.String(),

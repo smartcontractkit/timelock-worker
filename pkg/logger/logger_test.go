@@ -35,9 +35,9 @@ func Test_NewLogger(t *testing.T) {
 			wantErr: "unrecognized level: \"invalid\"",
 		},
 		{
-			name: "invalid output",
-			level: "info",
-			output: "invalid",
+			name:    "invalid output",
+			level:   "info",
+			output:  "invalid",
 			wantErr: "invalid logger output: \"invalid\"",
 		},
 	}
