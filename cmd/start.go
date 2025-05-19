@@ -4,6 +4,7 @@ import (
 	"context"
 	"math/big"
 
+	"github.com/ethereum/go-ethereum/common"
 	solana2 "github.com/gagliardetto/solana-go"
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/mcms/sdk/solana"
@@ -101,6 +102,10 @@ func startTimelock(cmd *cobra.Command) {
 		_, err := solana2.PrivateKeyFromBase58(privateKey)
 		if err != nil {
 			slog.Fatalf("value of private-key is invalid for solana: %s", err.Error())
+		}
+	} else if chainFamily == chain_selectors.FamilyEVM {
+		if !common.IsHexAddress(timelockAddress) {
+			slog.Fatalf("value of private-key is invalid for evm: %s", err.Error())
 		}
 	}
 
