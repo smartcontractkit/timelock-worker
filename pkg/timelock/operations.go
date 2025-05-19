@@ -134,9 +134,9 @@ func (tw *WorkerEVM) signTx(chainID *big.Int) bind.SignerFn {
 	}
 }
 
-// privateKeyToAddress is an util function to calculate the address of a given private key.
+// privateKeyToAddress is an util function to calculate the addresses of a given private key.
 // From a private key the public key can be deducted, and with the pubkey is
-// trivial to calculate the address.
+// trivial to calculate the addresses.
 func privateKeyToAddress(privateKey *ecdsa.PrivateKey) (common.Address, error) {
 	publicKeyECDSA, ok := privateKey.Public().(*ecdsa.PublicKey)
 	if !ok {

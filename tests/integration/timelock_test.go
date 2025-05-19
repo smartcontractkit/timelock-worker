@@ -209,7 +209,7 @@ func (s *integrationTestSuite) TestTimelockWorkerPollSize() {
 		account.Address, big.NewInt(1))
 	callProxyAddress, _, _, _ := DeployCallProxy(s.T(), ctx, transactor, backend, timelockAddress)
 
-	time.Sleep(1*time.Second) // wait for a few blocks before starting the timelock worker service
+	time.Sleep(1 * time.Second) // wait for a few blocks before starting the timelock worker service
 
 	// --- act ---
 	go runTimelockWorker(s.T(), ctx, gethURL, timelockAddress.String(), callProxyAddress.String(),
@@ -232,7 +232,7 @@ func runTimelockWorker(
 ) {
 	t.Logf("TimelockWorker.Listen(%v, %v, %v, %v, %v, %v, %v, %v)", nodeURL, timelockAddress,
 		callProxyAddress, privateKey, fromBlock, pollPeriod, listenerPollPeriod, listenerPollSize)
-	timelockWorker, err := timelock.NewTimelockWorker(nodeURL, timelockAddress,
+	timelockWorker, err := timelock.NewTimelockWorkerEVM(nodeURL, timelockAddress,
 		callProxyAddress, privateKey, fromBlock, pollPeriod, listenerPollPeriod, listenerPollSize, dryRun, logger.Sugar())
 	require.NoError(t, err)
 	require.NotNil(t, timelockWorker)

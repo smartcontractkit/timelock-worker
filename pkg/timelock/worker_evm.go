@@ -25,14 +25,14 @@ import (
 )
 
 // WorkerEVM represents an EVM worker instance.
-// address is an array of addresses as expected by ethereum.FilterQuery,
-// but it's enforced only to one address in the logic.
+// addresses is an array of addresses as expected by ethereum.FilterQuery,
+// but it's enforced only to one addresses in the logic.
 type WorkerEVM struct {
 	ethClient          *ethclient.Client
 	contract           *contracts.RBACTimelock
 	executeContract    *contracts.RBACTimelock
 	abi                *abi.ABI
-	address            []common.Address
+	addresses          []common.Address
 	fromBlock          *big.Int
 	pollPeriod         int64
 	listenerPollPeriod int64
@@ -47,9 +47,9 @@ var httpSchemes = []string{"http", "https"}
 
 var validNodeUrlSchemes = []string{"http", "https", "ws", "wss"}
 
-// NewTimelockWorker initializes and returns a timelockWorker.
+// NewTimelockWorkerEVM initializes and returns a timelockWorker.
 // It's a singleton, so further executions will retrieve the same timelockWorker.
-func NewTimelockWorker(
+func NewTimelockWorkerEVM(
 	nodeURL, timelockAddress, callProxyAddress, privateKey string, fromBlock *big.Int,
 	pollPeriod int64, listenerPollPeriod int64, pollSize uint64, dryRun bool, logger *zap.SugaredLogger,
 ) (*WorkerEVM, error) {
@@ -64,11 +64,11 @@ func NewTimelockWorker(
 	}
 
 	if !common.IsHexAddress(timelockAddress) {
-		return nil, fmt.Errorf("timelock address provided is not valid: %s", timelockAddress)
+		return nil, fmt.Errorf("timelock addresses provided is not valid: %s", timelockAddress)
 	}
 
 	if !common.IsHexAddress(callProxyAddress) {
-		return nil, fmt.Errorf("call proxy address provided is not valid: %s", callProxyAddress)
+		return nil, fmt.Errorf("call proxy addresses provided is not valid: %s", callProxyAddress)
 	}
 
 	if pollPeriod <= 0 {
@@ -105,7 +105,7 @@ func NewTimelockWorker(
 	}
 
 	// The contract ABI give grants capabilities such as parsing events and accessing to fields.
-	// As NewTimelock only accepts one contract, hardcode it to address[0].
+	// As NewTimelock only accepts one contract, hardcode it to addresses[0].
 	timelockContract, err := contracts.NewRBACTimelock(common.HexToAddress(timelockAddress), ethClient)
 	if err != nil {
 		return nil, err
@@ -128,7 +128,7 @@ func NewTimelockWorker(
 		contract:           timelockContract,
 		executeContract:    executeContract,
 		abi:                timelockABI,
-		address:            []common.Address{common.HexToAddress(timelockAddress)},
+		addresses:          []common.Address{common.HexToAddress(timelockAddress)},
 		fromBlock:          fromBlock,
 		pollPeriod:         pollPeriod,
 		listenerPollPeriod: listenerPollPeriod,
@@ -201,7 +201,7 @@ func (tw *WorkerEVM) Listen(ctx context.Context) error {
 // setupFilterQuery returns an ethereum.FilterQuery initialized to watch the Timelock contract.
 func (tw *WorkerEVM) setupFilterQuery(fromBlock, toBlock *big.Int) ethereum.FilterQuery {
 	return ethereum.FilterQuery{
-		Addresses: tw.address,
+		Addresses: tw.addresses,
 		FromBlock: fromBlock,
 		ToBlock:   toBlock,
 		Topics:    [][]common.Hash{},
@@ -576,14 +576,14 @@ func (tw *WorkerEVM) handleEventCancelled(_ context.Context, log types.Log) erro
 // startLog prints the timelock-worker configuration.
 func (tw *WorkerEVM) startLog() {
 	tw.logger.Info("timelock-worker started")
-	tw.logger.Infof("\tTimelock contract address: %v", tw.address[0])
+	tw.logger.Infof("\tTimelock contract addresses: %v", tw.addresses[0])
 
 	wallet, err := privateKeyToAddress(tw.privateKey)
 	if err != nil {
-		tw.logger.Fatal("\tEOA address: unable to determine")
+		tw.logger.Fatal("\tEOA addresses: unable to determine")
 	}
 
-	tw.logger.Infof("\tEOA address: %v", wallet)
+	tw.logger.Infof("\tEOA addresses: %v", wallet)
 	tw.logger.Infof("\tStarting from block: %v", tw.fromBlock)
 	tw.logger.Infof("\tPoll Period: %v", time.Duration(tw.pollPeriod*int64(time.Second)).String())
 	tw.logger.Infof("\tEvent Listener Poll Period: %v", time.Duration(tw.listenerPollPeriod*int64(time.Second)).String())

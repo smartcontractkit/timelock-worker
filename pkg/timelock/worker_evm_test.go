@@ -24,7 +24,7 @@ func newTestTimelockWorker(
 	assert.NotEmpty(t, pollPeriod, "pollPeriod is empty. Are environment variabes in const_test.go set?")
 	assert.NotNil(t, logger, "logger is nil. Are environment variabes in const_test.go set?")
 
-	tw, err := NewTimelockWorker(nodeURL, timelockAddress, callProxyAddress, privateKey, fromBlock,
+	tw, err := NewTimelockWorkerEVM(nodeURL, timelockAddress, callProxyAddress, privateKey, fromBlock,
 		pollPeriod, eventListenerPollPeriod, eventListenerPollSize, dryRun, logger)
 	require.NoError(t, err)
 	require.NotNil(t, tw)
@@ -32,7 +32,7 @@ func newTestTimelockWorker(
 	return tw
 }
 
-func TestNewTimelockWorker(t *testing.T) {
+func TestNewTimelockWorkerEVM(t *testing.T) {
 	t.Parallel()
 
 	rpcURL := runRPCServer(t)
@@ -82,14 +82,14 @@ func TestNewTimelockWorker(t *testing.T) {
 			wantErr: "invalid node URL: invalid://localhost/rpc (accepted schemes are: [http https ws wss])",
 		},
 		{
-			name:    "failure - bad timelock address",
+			name:    "failure - bad timelock addresses",
 			setup:   func(a *argsT) { a.timelockAddress = "invalid" },
-			wantErr: "timelock address provided is not valid: invalid",
+			wantErr: "timelock addresses provided is not valid: invalid",
 		},
 		{
-			name:    "failure - bad call proxy address",
+			name:    "failure - bad call proxy addresses",
 			setup:   func(a *argsT) { a.callProxyAddress = "invalid" },
-			wantErr: "call proxy address provided is not valid: invalid",
+			wantErr: "call proxy addresses provided is not valid: invalid",
 		},
 		{
 			name:    "failure - bad private key",

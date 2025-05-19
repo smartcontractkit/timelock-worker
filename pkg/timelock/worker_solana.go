@@ -17,6 +17,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/gagliardetto/solana-go/rpc/ws"
 	contracts "github.com/smartcontractkit/ccip-owner-contracts/gethwrappers"
@@ -29,28 +30,23 @@ import (
 type WorkerSolana struct {
 	SolanaClient       *rpc.Client
 	SolanaWSClient     *ws.Client
-	abi                *abi.ABI
-	address            []common.Address
+	timelockProgramKey *solana.PublicKey
 	fromBlock          *big.Int
 	pollPeriod         int64
 	listenerPollPeriod int64
 	pollSize           uint64
 	dryRun             bool
 	logger             *zap.SugaredLogger
-	privateKey         *ecdsa.PrivateKey
+	privateKey         *solana.PrivateKey
 	scheduler          Scheduler
 }
 
-var httpSchemes = []string{"http", "https"}
-
-var validNodeUrlSchemes = []string{"http", "https", "ws", "wss"}
-
-// NewTimelockWorker initializes and returns a timelockWorker.
+// NewTimelockWorkerSolana initializes and returns a timelockWorker.
 // It's a singleton, so further executions will retrieve the same timelockWorker.
-func NewTimelockWorker(
+func NewTimelockWorkerSolana(
 	nodeURL, timelockAddress, callProxyAddress, privateKey string, fromBlock *big.Int,
 	pollPeriod int64, listenerPollPeriod int64, pollSize uint64, dryRun bool, logger *zap.SugaredLogger,
-) (*WorkerEVM, error) {
+) (*WorkerSolana, error) {
 	// Sanity check on each provided variable before allocating more resources.
 	u, err := url.ParseRequestURI(nodeURL)
 	if err != nil {
@@ -61,12 +57,9 @@ func NewTimelockWorker(
 		return nil, fmt.Errorf("invalid node URL: %s (accepted schemes are: %v)", nodeURL, validNodeUrlSchemes)
 	}
 
-	if !common.IsHexAddress(timelockAddress) {
-		return nil, fmt.Errorf("timelock address provided is not valid: %s", timelockAddress)
-	}
-
-	if !common.IsHexAddress(callProxyAddress) {
-		return nil, fmt.Errorf("call proxy address provided is not valid: %s", callProxyAddress)
+	timelockPubKey, err := solana.PublicKeyFromBase58(timelockAddress)
+	if err != nil {
+		return nil, fmt.Errorf("timelock addresses provided is not valid: %s", timelockAddress)
 	}
 
 	if pollPeriod <= 0 {
@@ -90,20 +83,10 @@ func NewTimelockWorker(
 	}
 
 	// All variables provided are correct, start allocating new structures.
-	client, err := rpc.Dial(nodeURL)
-	if err != nil {
-		return nil, err
-	}
-
-	ethClient := ethclient.NewClient(client)
-
-	timelockABI, err := contracts.RBACTimelockMetaData.GetAbi()
-	if err != nil {
-		return nil, err
-	}
+	client := rpc.New(nodeURL)
 
 	// The contract ABI give grants capabilities such as parsing events and accessing to fields.
-	// As NewTimelock only accepts one contract, hardcode it to address[0].
+	// As NewTimelock only accepts one contract, hardcode it to addresses[0].
 	timelockContract, err := contracts.NewRBACTimelock(common.HexToAddress(timelockAddress), ethClient)
 	if err != nil {
 		return nil, err
@@ -121,12 +104,12 @@ func NewTimelockWorker(
 		return nil, err
 	}
 
-	tWorker := &WorkerEVM{
+	tWorker := &WorkerSolana{
 		ethClient:          ethClient,
 		contract:           timelockContract,
 		executeContract:    executeContract,
 		abi:                timelockABI,
-		address:            []common.Address{common.HexToAddress(timelockAddress)},
+		timelockProgramKey: timelockPubKey,
 		fromBlock:          fromBlock,
 		pollPeriod:         pollPeriod,
 		listenerPollPeriod: listenerPollPeriod,
@@ -199,7 +182,7 @@ func (tw *WorkerEVM) Listen(ctx context.Context) error {
 // setupFilterQuery returns an ethereum.FilterQuery initialized to watch the Timelock contract.
 func (tw *WorkerEVM) setupFilterQuery(fromBlock, toBlock *big.Int) ethereum.FilterQuery {
 	return ethereum.FilterQuery{
-		Addresses: tw.address,
+		Addresses: tw.addresses,
 		FromBlock: fromBlock,
 		ToBlock:   toBlock,
 		Topics:    [][]common.Hash{},
@@ -574,14 +557,14 @@ func (tw *WorkerEVM) handleEventCancelled(_ context.Context, log types.Log) erro
 // startLog prints the timelock-worker configuration.
 func (tw *WorkerEVM) startLog() {
 	tw.logger.Info("timelock-worker started")
-	tw.logger.Infof("\tTimelock contract address: %v", tw.address[0])
+	tw.logger.Infof("\tTimelock contract addresses: %v", tw.addresses[0])
 
 	wallet, err := privateKeyToAddress(tw.privateKey)
 	if err != nil {
-		tw.logger.Fatal("\tEOA address: unable to determine")
+		tw.logger.Fatal("\tEOA addresses: unable to determine")
 	}
 
-	tw.logger.Infof("\tEOA address: %v", wallet)
+	tw.logger.Infof("\tEOA addresses: %v", wallet)
 	tw.logger.Infof("\tStarting from block: %v", tw.fromBlock)
 	tw.logger.Infof("\tPoll Period: %v", time.Duration(tw.pollPeriod*int64(time.Second)).String())
 	tw.logger.Infof("\tEvent Listener Poll Period: %v", time.Duration(tw.listenerPollPeriod*int64(time.Second)).String())
