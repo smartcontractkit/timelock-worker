@@ -7,12 +7,14 @@ import (
 	"strconv"
 	"strings"
 
+	chain_selectors "github.com/smartcontractkit/chain-selectors"
 	"github.com/spf13/viper"
 )
 
 // Config holds the timelock.env configuration structure.
 type Config struct {
 	NodeURL                 string `mapstructure:"NODE_URL"`
+	ChainFamily             string `mapstructure:"CHAIN_FAMILY"`
 	TimelockAddress         string `mapstructure:"TIMELOCK_ADDRESS"`
 	CallProxyAddress        string `mapstructure:"CALL_PROXY_ADDRESS"`
 	PrivateKey              string `mapstructure:"PRIVATE_KEY"`
@@ -38,6 +40,13 @@ func NewTimelockCLI() (*Config, error) {
 	// only by providing env vars.
 	_ = viper.ReadInConfig()
 	_ = viper.Unmarshal(&c)
+
+	if os.Getenv("CHAIN_FAMILY") != "" {
+		c.ChainFamily = os.Getenv("CHAIN_FAMILY")
+	}
+	if c.ChainFamily == "" {
+		c.ChainFamily = chain_selectors.FamilyEVM
+	}
 
 	// Environment variables have precedence over timelock.env
 	// Get them and apply it into worker whenever they exist.

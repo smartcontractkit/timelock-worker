@@ -4,6 +4,10 @@ import (
 	"context"
 	"math/big"
 
+	"github.com/ethereum/go-ethereum/common"
+	solana2 "github.com/gagliardetto/solana-go"
+	chain_selectors "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/mcms/sdk/solana"
 	"github.com/spf13/cobra"
 
 	"github.com/smartcontractkit/timelock-worker/pkg/cli"
@@ -14,14 +18,14 @@ func startCommand() *cobra.Command {
 	var (
 		startCmd = cobra.Command{
 			Use:   "start",
-			Short: "Starts the Timelock WorkerEVM daemon",
+			Short: "Starts the Timelock Worker daemon",
 			Run:   startHandler,
 		}
 
-		nodeURL, privateKey, timelockAddress, callProxyAddress string
-		fromBlock, pollPeriod, eventListenerPollPeriod         int64
-		eventListenerPollSize                                  uint64
-		dryRun                                                 bool
+		nodeURL, privateKey, timelockAddress, callProxyAddress, chainFamily string
+		fromBlock, pollPeriod, eventListenerPollPeriod                      int64
+		eventListenerPollSize                                               uint64
+		dryRun                                                              bool
 	)
 
 	// Initialize timelock-worker configuration.
@@ -37,6 +41,7 @@ func startCommand() *cobra.Command {
 	timelock.SetReadyStatus(timelock.HealthStatusError)
 
 	startCmd.Flags().StringVarP(&nodeURL, "node-url", "n", timelockConf.NodeURL, "RPC Endpoint for the target blockchain")
+	startCmd.Flags().StringVarP(&chainFamily, "chain-family", "c", timelockConf.ChainFamily, "Chain family of the target blockchain (evm, solana)")
 	startCmd.Flags().StringVarP(&timelockAddress, "timelock-address", "a", timelockConf.TimelockAddress, "Address of the target Timelock contract")
 	startCmd.Flags().StringVarP(&callProxyAddress, "call-proxy-address", "f", timelockConf.CallProxyAddress, "Address of the target CallProxyAddress contract")
 	startCmd.Flags().StringVarP(&privateKey, "private-key", "k", timelockConf.PrivateKey, "Private key used to execute transactions")
@@ -63,19 +68,45 @@ func startTimelock(cmd *cobra.Command) {
 		slog.Fatalf("value of node-url not set: %s", err.Error())
 	}
 
+	chainFamily, err := cmd.Flags().GetString("chain-family")
+	if err != nil {
+		slog.Fatalf("value of node-url not set: %s", err.Error())
+	}
+
 	timelockAddress, err := cmd.Flags().GetString("timelock-address")
 	if err != nil {
 		slog.Fatalf("value of timelock-address not set: %s", err.Error())
 	}
+	if chainFamily == chain_selectors.FamilySolana {
+		// Parse contract address to ensure it's on right format
+		key, _, err := solana.ParseContractAddress(timelockAddress)
+		if err != nil {
+			slog.Fatalf("value of timelock-address is invalid for solana. expected: 'timelockProgram.instanceSeed': %s", err.Error())
+		}
+		if key.IsZero() {
+			slog.Fatalf("invalid timelockProgram. cannot be zero")
+		}
+	}
 
 	callProxyAddress, err := cmd.Flags().GetString("call-proxy-address")
-	if err != nil {
+	if err != nil && chainFamily == chain_selectors.FamilyEVM {
 		slog.Fatalf("value of call-proxy-address not set: %s", err.Error())
 	}
 
 	privateKey, err := cmd.Flags().GetString("private-key")
 	if err != nil {
 		slog.Fatalf("value of private-key not set: %s", err.Error())
+	}
+	if chainFamily == chain_selectors.FamilySolana {
+		// Parse contract address to ensure it's on right format
+		_, err := solana2.PrivateKeyFromBase58(privateKey)
+		if err != nil {
+			slog.Fatalf("value of private-key is invalid for solana: %s", err.Error())
+		}
+	} else if chainFamily == chain_selectors.FamilyEVM {
+		if !common.IsHexAddress(timelockAddress) {
+			slog.Fatalf("value of private-key is invalid for evm: %s", err.Error())
+		}
 	}
 
 	fromBlock, err := cmd.Flags().GetInt64("from-block")
@@ -103,16 +134,21 @@ func startTimelock(cmd *cobra.Command) {
 		slog.Fatalf("value of dry-run not set: %s", err.Error())
 	}
 
-	tWorker, err := timelock.NewTimelockWorkerEVM(nodeURL, timelockAddress, callProxyAddress, privateKey,
-		big.NewInt(fromBlock), pollPeriod, eventListenerPollPeriod, eventListenerPollSize, dryRun, slog)
-	if err != nil {
-		slog.Fatalf("error creating the timelock-worker: %s", err.Error())
-	}
+	if chainFamily == chain_selectors.FamilyEVM {
+		tWorker, err := timelock.NewTimelockWorker(nodeURL, timelockAddress, callProxyAddress, privateKey,
+			big.NewInt(fromBlock), pollPeriod, eventListenerPollPeriod, eventListenerPollSize, dryRun, slog)
+		if err != nil {
+			slog.Fatalf("error creating the timelock-worker: %s", err.Error())
+		}
 
-	if err := tWorker.Listen(context.Background()); err != nil {
-		slog.Fatalf("error while starting timelock-worker: %s", err.Error())
+		if err := tWorker.Listen(context.Background()); err != nil {
+			slog.Fatalf("error while starting timelock-worker: %s", err.Error())
+		}
+	} else if chainFamily == chain_selectors.FamilySolana {
+		slog.Infof("Solana chain family is not supported yet")
+	} else {
+		slog.Fatalf("unsupported chain family: %s", chainFamily)
 	}
-
 	slog.Infof("shutting down timelock-worker")
 }
 
