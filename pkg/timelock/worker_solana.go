@@ -40,7 +40,6 @@ type WorkerSolana struct {
 }
 
 // NewTimelockWorkerSolana initializes and returns a timelockWorker.
-// It's a singleton, so further executions will retrieve the same timelockWorker.
 func NewTimelockWorkerSolana(
 	nodeURL, timelockAddress, callProxyAddress, privateKey string, fromBlock *big.Int,
 	pollPeriod int64, listenerPollPeriod int64, pollSize uint64, dryRun bool, logger *zap.SugaredLogger,
