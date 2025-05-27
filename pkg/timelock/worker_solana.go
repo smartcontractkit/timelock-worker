@@ -32,9 +32,8 @@ type WorkerSolana struct {
 }
 
 // NewTimelockWorkerSolana initializes and returns a timelockWorker.
-// It's a singleton, so further executions will retrieve the same timelockWorker.
 func NewTimelockWorkerSolana(
-	nodeURL, timelockAddress, callProxyAddress, privateKey string, fromBlock *big.Int,
+	nodeURL, timelockAddress, privateKey string, fromBlock *big.Int,
 	pollPeriod int64, listenerPollPeriod int64, pollSize uint64, dryRun bool, logger *zap.SugaredLogger,
 ) (*WorkerSolana, error) {
 	var privateKeySolana solana.PrivateKey
@@ -135,11 +134,11 @@ func (w *WorkerSolana) Listen(ctx context.Context) error {
 // startLog prints the timelock-worker configuration.
 func (w *WorkerSolana) startLog() {
 	w.logger.Info("timelock-worker started [solana]")
-	w.logger.Infof("\tTimelock prorgam addresses: %v", w.timelockProgramKey.String())
+	w.logger.Infof("\tTimelock program addresses: %v", w.timelockProgramKey.String())
 
 	wallet := w.privateKey.PublicKey()
 
-	w.logger.Infof("\tsolana account address: %v", wallet)
+	w.logger.Infof("\tSolana account address: %v", wallet)
 	w.logger.Infof("\tPoll Period: %v", time.Duration(w.pollPeriod*int64(time.Second)).String())
 	w.logger.Infof("\tEvent Listener Poll Period: %v", time.Duration(w.listenerPollPeriod*int64(time.Second)).String())
 	w.logger.Infof("\tEvent Listener Poll # Logs%v", w.pollSize)
