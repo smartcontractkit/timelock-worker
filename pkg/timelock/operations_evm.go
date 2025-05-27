@@ -19,7 +19,7 @@ import (
 // - The predecessor operation is finished
 // - The operation is ready to be executed
 // Otherwise the operation will throw an info log and wait for a future tick.
-func (tw *Worker) execute(ctx context.Context, op []*contracts.RBACTimelockCallScheduled) {
+func (tw *WorkerEVM) execute(ctx context.Context, op []*contracts.RBACTimelockCallScheduled) {
 	isReady, err := isReady(ctx, tw.contract, op[0].Id)
 	if err != nil {
 		tw.logger.Errorw("unable to read operation %x \"ready\" status: %s", op[0].Id, err.Error())
@@ -48,7 +48,7 @@ func (tw *Worker) execute(ctx context.Context, op []*contracts.RBACTimelockCallS
 }
 
 // executeCallScheduleOperation is the handler to execute a CallScheduled operation.
-func (tw *Worker) executeCallSchedule(ctx context.Context, c *contracts.RBACTimelockTransactor, cs []*contracts.RBACTimelockCallScheduled, privateKey *ecdsa.PrivateKey) (*types.Transaction, error) {
+func (tw *WorkerEVM) executeCallSchedule(ctx context.Context, c *contracts.RBACTimelockTransactor, cs []*contracts.RBACTimelockCallScheduled, privateKey *ecdsa.PrivateKey) (*types.Transaction, error) {
 	fromAddress, err := privateKeyToAddress(privateKey)
 	if err != nil {
 		return nil, err
@@ -123,7 +123,7 @@ func isPending(ctx context.Context, c *contracts.RBACTimelock, id [32]byte) (boo
 }
 
 // signTx is a function that implements the type SignerFn, so can be passed as a Signer method.
-func (tw *Worker) signTx(chainID *big.Int) bind.SignerFn {
+func (tw *WorkerEVM) signTx(chainID *big.Int) bind.SignerFn {
 	return func(address common.Address, tx *types.Transaction) (*types.Transaction, error) {
 		signedTx, err := types.SignTx(tx, types.LatestSignerForChainID(chainID), tw.privateKey)
 		if err != nil {
@@ -134,9 +134,9 @@ func (tw *Worker) signTx(chainID *big.Int) bind.SignerFn {
 	}
 }
 
-// privateKeyToAddress is an util function to calculate the address of a given private key.
+// privateKeyToAddress is an util function to calculate the addresses of a given private key.
 // From a private key the public key can be deducted, and with the pubkey is
-// trivial to calculate the address.
+// trivial to calculate the addresses.
 func privateKeyToAddress(privateKey *ecdsa.PrivateKey) (common.Address, error) {
 	publicKeyECDSA, ok := privateKey.Public().(*ecdsa.PublicKey)
 	if !ok {

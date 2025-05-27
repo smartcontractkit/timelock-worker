@@ -24,15 +24,15 @@ import (
 	"github.com/smartcontractkit/timelock-worker/pkg/isclosed"
 )
 
-// Worker represents a worker instance.
-// address is an array of addresses as expected by ethereum.FilterQuery,
-// but it's enforced only to one address in the logic.
-type Worker struct {
+// WorkerEVM represents an EVM worker instance.
+// addresses is an array of addresses as expected by ethereum.FilterQuery,
+// but it's enforced only to one addresses in the logic.
+type WorkerEVM struct {
 	ethClient          *ethclient.Client
 	contract           *contracts.RBACTimelock
 	executeContract    *contracts.RBACTimelock
 	abi                *abi.ABI
-	address            []common.Address
+	addresses          []common.Address
 	fromBlock          *big.Int
 	pollPeriod         int64
 	listenerPollPeriod int64
@@ -47,12 +47,12 @@ var httpSchemes = []string{"http", "https"}
 
 var validNodeUrlSchemes = []string{"http", "https", "ws", "wss"}
 
-// NewTimelockWorker initializes and returns a timelockWorker.
+// NewTimelockWorkerEVM initializes and returns a timelockWorker.
 // It's a singleton, so further executions will retrieve the same timelockWorker.
-func NewTimelockWorker(
+func NewTimelockWorkerEVM(
 	nodeURL, timelockAddress, callProxyAddress, privateKey string, fromBlock *big.Int,
 	pollPeriod int64, listenerPollPeriod int64, pollSize uint64, dryRun bool, logger *zap.SugaredLogger,
-) (*Worker, error) {
+) (*WorkerEVM, error) {
 	// Sanity check on each provided variable before allocating more resources.
 	u, err := url.ParseRequestURI(nodeURL)
 	if err != nil {
@@ -64,11 +64,11 @@ func NewTimelockWorker(
 	}
 
 	if !common.IsHexAddress(timelockAddress) {
-		return nil, fmt.Errorf("timelock address provided is not valid: %s", timelockAddress)
+		return nil, fmt.Errorf("timelock addresses provided is not valid: %s", timelockAddress)
 	}
 
 	if !common.IsHexAddress(callProxyAddress) {
-		return nil, fmt.Errorf("call proxy address provided is not valid: %s", callProxyAddress)
+		return nil, fmt.Errorf("call proxy addresses provided is not valid: %s", callProxyAddress)
 	}
 
 	if pollPeriod <= 0 {
@@ -105,7 +105,7 @@ func NewTimelockWorker(
 	}
 
 	// The contract ABI give grants capabilities such as parsing events and accessing to fields.
-	// As NewTimelock only accepts one contract, hardcode it to address[0].
+	// As NewTimelock only accepts one contract, hardcode it to addresses[0].
 	timelockContract, err := contracts.NewRBACTimelock(common.HexToAddress(timelockAddress), ethClient)
 	if err != nil {
 		return nil, err
@@ -123,12 +123,12 @@ func NewTimelockWorker(
 		return nil, err
 	}
 
-	tWorker := &Worker{
+	tWorker := &WorkerEVM{
 		ethClient:          ethClient,
 		contract:           timelockContract,
 		executeContract:    executeContract,
 		abi:                timelockABI,
-		address:            []common.Address{common.HexToAddress(timelockAddress)},
+		addresses:          []common.Address{common.HexToAddress(timelockAddress)},
 		fromBlock:          fromBlock,
 		pollPeriod:         pollPeriod,
 		listenerPollPeriod: listenerPollPeriod,
@@ -147,9 +147,9 @@ func NewTimelockWorker(
 	return tWorker, nil
 }
 
-// Listen is the main function of a Timelock Worker.
+// Listen is the main function of a Timelock WorkerEVM.
 // It handles the retrieval of old and new events, contexts and cancellations.
-func (tw *Worker) Listen(ctx context.Context) error {
+func (tw *WorkerEVM) Listen(ctx context.Context) error {
 	ctxwc, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 
 	// Log timelock-worker configuration.
@@ -199,9 +199,9 @@ func (tw *Worker) Listen(ctx context.Context) error {
 }
 
 // setupFilterQuery returns an ethereum.FilterQuery initialized to watch the Timelock contract.
-func (tw *Worker) setupFilterQuery(fromBlock, toBlock *big.Int) ethereum.FilterQuery {
+func (tw *WorkerEVM) setupFilterQuery(fromBlock, toBlock *big.Int) ethereum.FilterQuery {
 	return ethereum.FilterQuery{
-		Addresses: tw.address,
+		Addresses: tw.addresses,
 		FromBlock: fromBlock,
 		ToBlock:   toBlock,
 		Topics:    [][]common.Hash{},
@@ -214,7 +214,7 @@ func (tw *Worker) setupFilterQuery(fromBlock, toBlock *big.Int) ethereum.FilterQ
 // The actual retrieval is performed by either `subscribeNewLogs`, if the node connection
 // supports subscriptions, or `pollNewLogs` otherwise. In practice, the ethclient library
 // simply checks if the given node URL is "http(s)" or not.
-func (tw *Worker) retrieveNewLogs(ctx context.Context) (<-chan struct{}, <-chan types.Log, error) {
+func (tw *WorkerEVM) retrieveNewLogs(ctx context.Context) (<-chan struct{}, <-chan types.Log, error) {
 	if tw.ethClient.Client().SupportsSubscriptions() {
 		return tw.subscribeNewLogs(ctx)
 	}
@@ -223,7 +223,7 @@ func (tw *Worker) retrieveNewLogs(ctx context.Context) (<-chan struct{}, <-chan 
 }
 
 // subscribeNewLogs subscribes to a Timelock contract and emit logs through the channel it returns.
-func (tw *Worker) subscribeNewLogs(ctx context.Context) (<-chan struct{}, <-chan types.Log, error) {
+func (tw *WorkerEVM) subscribeNewLogs(ctx context.Context) (<-chan struct{}, <-chan types.Log, error) {
 	query := tw.setupFilterQuery(tw.fromBlock, nil)
 	logCh := make(chan types.Log)
 	done := make(chan struct{})
@@ -285,7 +285,7 @@ func (tw *Worker) subscribeNewLogs(ctx context.Context) (<-chan struct{}, <-chan
 }
 
 // pollNewLogs periodically retrieves logs from the Timelock and emit them through the channel it returns.
-func (tw *Worker) pollNewLogs(ctx context.Context) (<-chan struct{}, <-chan types.Log, error) {
+func (tw *WorkerEVM) pollNewLogs(ctx context.Context) (<-chan struct{}, <-chan types.Log, error) {
 	lastBlock := tw.fromBlock
 	logCh := make(chan types.Log)
 	done := make(chan struct{})
@@ -318,7 +318,7 @@ func (tw *Worker) pollNewLogs(ctx context.Context) (<-chan struct{}, <-chan type
 
 // retrieveHistoricalLogs returns a types.Log channel and retrieves all the historical events of a given contract.
 // Once all the logs have been sent into the channel the function returns and the channel is closed.
-func (tw *Worker) retrieveHistoricalLogs(ctx context.Context) (<-chan struct{}, <-chan types.Log, error) {
+func (tw *WorkerEVM) retrieveHistoricalLogs(ctx context.Context) (<-chan struct{}, <-chan types.Log, error) {
 	query := tw.setupFilterQuery(tw.fromBlock, nil)
 	logCh := make(chan types.Log)
 	done := make(chan struct{})
@@ -360,7 +360,7 @@ func (tw *Worker) retrieveHistoricalLogs(ctx context.Context) (<-chan struct{}, 
 	return done, logCh, nil
 }
 
-func (tw *Worker) fetchAndDispatchLogs(
+func (tw *WorkerEVM) fetchAndDispatchLogs(
 	ctx context.Context, logCh chan types.Log, fromBlock, currentChainBlock *big.Int,
 ) *big.Int {
 	if currentChainBlock == nil {
@@ -411,7 +411,7 @@ func (tw *Worker) fetchAndDispatchLogs(
 
 // processLogs is implemented as a fan-in for all the logs channels, merging all the data and handling logs sequentially.
 // This function is thread safe.
-func (tw *Worker) processLogs(ctx context.Context, oldLog, newLog <-chan types.Log) <-chan struct{} {
+func (tw *WorkerEVM) processLogs(ctx context.Context, oldLog, newLog <-chan types.Log) <-chan struct{} {
 	var (
 		done, newDone, oldDone = make(chan struct{}), make(chan struct{}), make(chan struct{})
 		ctxwc, cancel          = context.WithCancel(ctx)
@@ -468,7 +468,7 @@ func (tw *Worker) processLogs(ctx context.Context, oldLog, newLog <-chan types.L
 // handleLog handles the logic of parsing every event, its type and actions associated to each one.
 // CallScheduled events have to be added to the scheduler.
 // CallExecuted and CallCanceled signals an event that has to be removed from the scheduler.
-func (tw *Worker) handleLog(ctx context.Context, log types.Log) error {
+func (tw *WorkerEVM) handleLog(ctx context.Context, log types.Log) error {
 	// Ignore logs with no topics.
 	if len(log.Topics) == 0 {
 		return nil
@@ -499,7 +499,7 @@ func (tw *Worker) handleLog(ctx context.Context, log types.Log) error {
 
 // A CallScheduled event should be added to an scheduler only if it's not already done
 // and it's a valid Operation.
-func (tw *Worker) handleEventScheduled(ctx context.Context, log types.Log) error {
+func (tw *WorkerEVM) handleEventScheduled(ctx context.Context, log types.Log) error {
 	cs, err := tw.contract.ParseCallScheduled(log)
 	if err != nil {
 		return fmt.Errorf("failed to parse CallScheduled log: %w", err)
@@ -532,7 +532,7 @@ func (tw *Worker) handleEventScheduled(ctx context.Context, log types.Log) error
 }
 
 // A CallExecuted which is in Done status should delete the task in the scheduler store.
-func (tw *Worker) handleEventExecuted(ctx context.Context, log types.Log) error {
+func (tw *WorkerEVM) handleEventExecuted(ctx context.Context, log types.Log) error {
 	cs, err := tw.contract.ParseCallExecuted(log)
 	if err != nil {
 		return fmt.Errorf("failed to parse CallExecuted log: %w", err)
@@ -558,7 +558,7 @@ func (tw *Worker) handleEventExecuted(ctx context.Context, log types.Log) error 
 }
 
 // A Cancelled which is in Done status should delete the task in the scheduler store.
-func (tw *Worker) handleEventCancelled(_ context.Context, log types.Log) error {
+func (tw *WorkerEVM) handleEventCancelled(_ context.Context, log types.Log) error {
 	cs, err := tw.contract.ParseCancelled(log)
 	if err != nil {
 		return fmt.Errorf("failed to parse Cancelled log: %w", err)
@@ -574,16 +574,16 @@ func (tw *Worker) handleEventCancelled(_ context.Context, log types.Log) error {
 }
 
 // startLog prints the timelock-worker configuration.
-func (tw *Worker) startLog() {
+func (tw *WorkerEVM) startLog() {
 	tw.logger.Info("timelock-worker started")
-	tw.logger.Infof("\tTimelock contract address: %v", tw.address[0])
+	tw.logger.Infof("\tTimelock contract addresses: %v", tw.addresses[0])
 
 	wallet, err := privateKeyToAddress(tw.privateKey)
 	if err != nil {
-		tw.logger.Fatal("\tEOA address: unable to determine")
+		tw.logger.Fatal("\tEOA addresses: unable to determine")
 	}
 
-	tw.logger.Infof("\tEOA address: %v", wallet)
+	tw.logger.Infof("\tEOA addresses: %v", wallet)
 	tw.logger.Infof("\tStarting from block: %v", tw.fromBlock)
 	tw.logger.Infof("\tPoll Period: %v", time.Duration(tw.pollPeriod*int64(time.Second)).String())
 	tw.logger.Infof("\tEvent Listener Poll Period: %v", time.Duration(tw.listenerPollPeriod*int64(time.Second)).String())
