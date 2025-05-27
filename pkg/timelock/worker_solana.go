@@ -2,8 +2,6 @@ package timelock
 
 import (
 	"context"
-	"strings"
-
 	"fmt"
 	"math/big"
 	"net/url"
@@ -14,11 +12,17 @@ import (
 
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
-
+	"github.com/gagliardetto/solana-go/rpc/jsonrpc"
+	timelockgb "github.com/smartcontractkit/chainlink-ccip/chains/solana/gobindings/timelock"
 	"go.uber.org/zap"
-
-	"github.com/smartcontractkit/timelock-worker/pkg/isclosed"
 )
+
+// TimelockEvents groups all of the decoded events from one tx.
+type TimelockEvents struct {
+	Scheduled []timelockgb.CallScheduled
+	Executed  []timelockgb.CallExecuted
+	Cancelled []timelockgb.CallCancelled
+}
 
 // WorkerSolana represents a solana worker instance. It fetches periodically the latest signatures
 // and transactions from the Solana RPC node and dispatches them to the scheduler.
@@ -99,7 +103,7 @@ func NewTimelockWorkerSolana(
 // Listen is the main function of a Timelock WorkerSolana.
 // It handles the retrieval of old and new events, contexts and cancellations.
 func (w *WorkerSolana) Listen(ctx context.Context) error {
-	ctxwc, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	ctxwc, _ := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 
 	// Log timelock-worker configuration.
 	w.startLog()
@@ -145,39 +149,36 @@ func (w *WorkerSolana) pollNewSignatures(
 	ctx context.Context,
 ) (<-chan struct{}, <-chan *rpc.TransactionWithMeta) {
 	done := make(chan struct{})
-	txCh := make(chan *rpc.TransactionWithMeta)
+	txCh := make(chan *rpc.TransactionWithMeta, w.pollSize)
 
 	go func() {
-		w.logger.Infof(
-			"starting pollNewSignatures: program=%s pollPeriod=%ds pollSize=%d",
-			w.timelockProgramKey,
-			w.pollPeriod,
-			w.pollSize,
-		)
 		defer func() {
 			w.logger.Info("pollNewSignatures exiting")
 			close(done)
 			close(txCh)
 		}()
 
-		// 1) First run: anchor to the very latest signature so we don't replay history
+		w.logger.Infof(
+			"starting pollNewSignatures: program=%s pollPeriod=%ds pollSize=%d",
+			w.timelockProgramKey,
+			w.pollPeriod,
+			w.pollSize,
+		)
+
+		// 1) Anchor on first run
 		if w.lastSignature == nil {
-			w.logger.Debug("anchoring to latest signature (first run)")
-			docs, err := w.solanaClient.GetSignaturesForAddressWithOpts(
+			signaturesResp, err := w.solanaClient.GetSignaturesForAddressWithOpts(
 				ctx,
 				w.timelockProgramKey,
-				&rpc.GetSignaturesForAddressOpts{
-					Limit: ptrInt(1),
-				},
+				&rpc.GetSignaturesForAddressOpts{Limit: ptrInt(1)},
 			)
 			if err != nil {
-				w.logger.Errorf("failed to anchor to latest signature: %v", err)
-			} else if len(docs) == 0 {
-				w.logger.Warn("no existing signatures found to anchor to")
+				w.logger.Errorf("anchor failed: %v", err)
+			} else if len(signaturesResp) > 0 {
+				w.lastSignature = &signaturesResp[0].Signature
+				w.logger.Infof("anchored to latest: %s", *w.lastSignature)
 			} else {
-				sig0 := docs[0].Signature
-				w.lastSignature = &sig0
-				w.logger.Infof("anchored to latest signature: %s", sig0)
+				w.logger.Warn("no existing sigs to anchor")
 			}
 		}
 
@@ -187,55 +188,66 @@ func (w *WorkerSolana) pollNewSignatures(
 		for {
 			select {
 			case <-ctx.Done():
-				w.logger.Info("context canceled; stopping pollNewSignatures")
+				w.logger.Info("context cancelled")
 				return
 
 			case <-ticker.C:
-				// 2) Fetch everything newer than lastSignature
+				// 2) fetch sigs
 				var until solana.Signature
 				if w.lastSignature != nil {
 					until = *w.lastSignature
 				}
-				w.logger.Debugf("polling new signatures since: %s (limit %d)", until, w.pollSize)
-
-				limit := int(w.pollSize)
 				sigs, err := w.solanaClient.GetSignaturesForAddressWithOpts(
 					ctx,
 					w.timelockProgramKey,
 					&rpc.GetSignaturesForAddressOpts{
-						Limit: ptrInt(limit),
+						Limit: ptrInt(int(w.pollSize)),
 						Until: until,
 					},
 				)
 				if err != nil {
-					w.logger.Errorf("GetSignaturesForAddressWithOpts failed: %v", err)
+					w.logger.Errorf("GetSignaturesForAddress failed: %v", err)
 					continue
 				}
 				if len(sigs) == 0 {
-					w.logger.Debug("no new signatures found")
+					w.logger.Debug("no new sigs")
 					continue
 				}
 				w.logger.Infof("found %d new signatures", len(sigs))
 
-				// 3) RPC returns newest→oldest; process oldest→newest
-				for i := len(sigs) - 1; i >= 0; i-- {
-					sig := sigs[i].Signature
-					w.logger.Debugf("processing signature: %s", sig)
-					w.lastSignature = &sig
-
-					// 4) Fetch the confirmed transaction (with logs)
-					tx, err := w.solanaClient.GetConfirmedTransactionWithOpts(
-						ctx,
-						sig,
-						&rpc.GetTransactionOpts{
-							Encoding: solana.EncodingBase58,
-						},
+				// 3) build JSON-RPC batch requests (oldest→newest)
+				requests := make(jsonrpc.RPCRequests, len(sigs))
+				for i, info := range sigs {
+					// reverse so index 0 = oldest
+					j := len(sigs) - 1 - i
+					requests[j] = jsonrpc.NewRequest(
+						"getTransaction",
+						info.Signature,
+						&rpc.GetTransactionOpts{Encoding: solana.EncodingBase58},
 					)
-					if err != nil {
-						w.logger.Warnf("GetConfirmedTransaction(%s) failed: %v", sig, err)
+				}
+
+				// 4) fire them all at once
+				resps, err := w.solanaClient.RPCCallBatch(ctx, requests)
+				if err != nil {
+					w.logger.Errorf("RPCCallBatch failed: %v", err)
+					continue
+				}
+
+				// 5) emit results in order
+				for i, resp := range resps {
+					// match back to sigs reversed
+					sigInfo := sigs[len(sigs)-1-i]
+					if resp.Error != nil {
+						w.logger.Warnf("tx %s failed: %v", sigInfo.Signature, resp.Error)
 						continue
 					}
-					w.logger.Debugf("fetched transaction for signature: %s", sig)
+					tx := new(rpc.TransactionWithMeta)
+					if err := resp.GetObject(&tx); err != nil {
+						w.logger.Warnf("decode %s failed: %v", sigInfo.Signature, err)
+						continue
+					}
+					w.lastSignature = &sigInfo.Signature
 					txCh <- tx
 				}
 			}
@@ -243,75 +255,6 @@ func (w *WorkerSolana) pollNewSignatures(
 	}()
 
 	return done, txCh
-}
-
-// processTransactions reads parsed transactions and dispatches events to the scheduler
-func (w *WorkerSolana) processTransactions(
-	ctx context.Context,
-	txCh <-chan *rpc.TransactionWithMeta,
-) <-chan struct{} {
-	done := make(chan struct{})
-
-	go func() {
-		defer close(done)
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case tx, ok := <-txCh:
-				if !ok {
-					return
-				}
-
-				for _, msg := range tx.Meta.LogMessages {
-					// Scheduled
-					if isCallScheduledLog(msg) {
-						ev, err := parseCallScheduled(msg)
-						if err != nil {
-							w.logger.Warnf("parseCallScheduled failed: %v", err)
-							continue
-						}
-						w.logger.Infof("scheduling op %s at %s", ev.ID, ev.ETA)
-						w.scheduler.addToScheduler(ev)
-
-						// Executed
-					} else if isCallExecutedLog(msg) {
-						ev, err := parseCallExecuted(msg)
-						if err != nil {
-							w.logger.Warnf("parseCallExecuted failed: %v", err)
-							continue
-						}
-						w.logger.Infof("executed op %s", ev.ID)
-						w.scheduler.delFromScheduler(ev.ID)
-
-						// Cancelled
-					} else if isCallCancelledLog(msg) {
-						ev, err := parseCallCancelled(msg)
-						if err != nil {
-							w.logger.Warnf("parseCallCancelled failed: %v", err)
-							continue
-						}
-						w.logger.Infof("cancelled op %s", ev.ID)
-						w.scheduler.delFromScheduler(ev.ID)
-					}
-				}
-			}
-		}
-	}()
-
-	return done
-}
-
-// Helpers for detecting and parsing on-chain logs
-func isCallScheduledLog(msg string) bool {
-	return strings.HasPrefix(msg, "Program log: EVENT:CallScheduled")
-}
-func isCallExecutedLog(msg string) bool {
-	return strings.HasPrefix(msg, "Program log: EVENT:CallExecuted")
-}
-func isCallCancelledLog(msg string) bool {
-	return strings.HasPrefix(msg, "Program log: EVENT:CallCancelled")
 }
 
 // startLog prints the timelock-worker configuration.

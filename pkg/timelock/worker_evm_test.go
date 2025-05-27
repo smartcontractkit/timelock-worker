@@ -124,7 +124,7 @@ func TestNewTimelockWorkerEVM(t *testing.T) {
 			args := defaultArgs
 			tt.setup(&args)
 
-			got, err := NewTimelockWorker(args.nodeURL, args.timelockAddress, args.callProxyAddress,
+			got, err := NewTimelockWorkerEVM(args.nodeURL, args.timelockAddress, args.callProxyAddress,
 				args.privateKey, args.fromBlock, args.pollPeriod, args.eventListenerPollPeriod,
 				args.eventListenerPollSize, args.dryRun, args.logger)
 
