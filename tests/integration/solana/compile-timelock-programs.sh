@@ -9,7 +9,7 @@ PROJECT_ROOT=$(git rev-parse --show-toplevel)
 GO_MOD_FILE="${PROJECT_ROOT}/go.mod"
 
 PROGRAM_DIR="chains/solana/contracts/target/deploy"
-DEST_DIR="${PROJECT_ROOT}/e2e/artifacts/solana"
+DEST_DIR="${PROJECT_ROOT}/tests/integration/solana/artifacts"
 TEMP_DIR=$(mktemp -d)
 
 MOD_ENTRY=$(grep -E 'github\.com/smartcontractkit/chainlink-ccip/chains/solana\s+v[0-9]+\.[0-9]+\.[0-9]+-[0-9]+-[a-f0-9]+' "$GO_MOD_FILE")
@@ -36,4 +36,4 @@ cp -r "${TEMP_DIR}/${REPO_DIR}/${PROGRAM_DIR}/"* "${DEST_DIR}/"
 
 rm -rf "${TEMP_DIR}"
 
-echo "MCMS contracts compiled successfully"
+echo "Timelock programs compiled successfully"
