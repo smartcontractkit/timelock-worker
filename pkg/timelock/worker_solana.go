@@ -3,35 +3,31 @@ package timelock
 import (
 	"context"
 	"fmt"
-	"math/big"
 	"net/url"
 	"os/signal"
 	"slices"
 	"syscall"
 	"time"
 
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/gagliardetto/solana-go/rpc/jsonrpc"
-	timelockgb "github.com/smartcontractkit/chainlink-ccip/chains/solana/gobindings/timelock"
+	solanasdk "github.com/smartcontractkit/mcms/sdk/solana"
 	"go.uber.org/zap"
-)
 
-// TimelockEvents groups all of the decoded events from one tx.
-type TimelockEvents struct {
-	Scheduled []timelockgb.CallScheduled
-	Executed  []timelockgb.CallExecuted
-	Cancelled []timelockgb.CallCancelled
-}
+	"github.com/smartcontractkit/timelock-worker/pkg/isclosed"
+)
 
 // WorkerSolana represents a solana worker instance. It fetches periodically the latest signatures
 // and transactions from the Solana RPC node and dispatches them to the scheduler.
 type WorkerSolana struct {
 	solanaClient       *rpc.Client
 	timelockProgramKey solana.PublicKey
+	instanceSeed       solanasdk.PDASeed // instanceSeed is the seed used to derive the timelock instance.
 	pollPeriod         int64
 	listenerPollPeriod int64
-	pollSize           uint64
+	pollSize           int
 	dryRun             bool
 	logger             *zap.SugaredLogger
 	privateKey         solana.PrivateKey
@@ -41,8 +37,14 @@ type WorkerSolana struct {
 
 // NewTimelockWorkerSolana initializes and returns a timelockWorker.
 func NewTimelockWorkerSolana(
-	nodeURL, timelockAddress, callProxyAddress, privateKey string, fromBlock *big.Int,
-	pollPeriod int64, listenerPollPeriod int64, pollSize uint64, dryRun bool, logger *zap.SugaredLogger,
+	nodeURL,
+	timelockAddress,
+	privateKey string,
+	pollPeriod int64,
+	listenerPollPeriod int64,
+	pollSize int,
+	dryRun bool,
+	logger *zap.SugaredLogger,
 ) (*WorkerSolana, error) {
 	var privateKeySolana solana.PrivateKey
 	// Sanity check on each provided variable before allocating more resources.
@@ -55,7 +57,7 @@ func NewTimelockWorkerSolana(
 		return nil, fmt.Errorf("invalid node URL: %s (accepted schemes are: %v)", nodeURL, validNodeUrlSchemes)
 	}
 
-	timelockPubKey, err := solana.PublicKeyFromBase58(timelockAddress)
+	timelockPubKey, instanceSeed, err := solanasdk.ParseContractAddress(timelockAddress)
 	if err != nil {
 		return nil, fmt.Errorf("timelock addresses provided is not valid: %s", timelockAddress)
 	}
@@ -81,6 +83,7 @@ func NewTimelockWorkerSolana(
 
 	tWorker := &WorkerSolana{
 		solanaClient:       client,
+		instanceSeed:       instanceSeed,
 		timelockProgramKey: timelockPubKey,
 		pollPeriod:         pollPeriod,
 		listenerPollPeriod: listenerPollPeriod,
@@ -102,44 +105,43 @@ func NewTimelockWorkerSolana(
 // Listen is the main function of a Timelock WorkerSolana.
 // It handles the retrieval of old and new events, contexts and cancellations.
 func (w *WorkerSolana) Listen(ctx context.Context) error {
-	ctxwc, _ := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	ctxwc, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 
 	// Log timelock-worker configuration.
 	w.startLog()
 
 	// Run the scheduler to add/del operations in a thread-safe way.
-	_ = w.scheduler.runScheduler(ctxwc)
+	//schedulingDone = w.scheduler.runScheduler(ctxwc)
 
-	panic("solana log processing not implemented yet")
 	//// Retrieve logs asynchronously.
-	//pollDone, txCh := w.pollNewSignatures(ctxwc)
-	//
-	//// Start processing transactions
-	//procDone := w.processTransactions(ctx, txCh)
-	//// Block until the context is done or until processing is completed.
-	//// This cover the two cases where timelock-worker can exit:
-	//// - A signal to stop timelock-worker was received.
-	//// - The subscription errored out and wasn't recovered.
-	//select {
-	//case <-ctxwc.Done():
-	//case <-procDone:
-	//	cancel()
-	//}
-	//
-	//w.logger.Info("shutting down timelock-worker")
-	//w.logger.Info("dumping operation store")
-	//w.scheduler.dumpOperationStore(time.Now)
-	//
-	//// Wait for all goroutines to finish.
-	//shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Second*5)
-	//defer cancel()
-	//
-	//<-isclosed.All(shutdownCtx, schedulingDone, pollDone, procDone) //nolint:contextcheck
-	//
-	//return nil
+	pollDone, txCh := w.pollNewSignatures(ctxwc)
+
+	// Start processing transactions
+	procDone := w.processTransactions(ctxwc, txCh)
+	// Block until the context is done or until processing is completed.
+	// This cover the two cases where timelock-worker can exit:
+	// - A signal to stop timelock-worker was received.
+	// - The subscription errored out and wasn't recovered.
+	select {
+	case <-ctxwc.Done():
+	case <-procDone:
+		cancel()
+	}
+
+	w.logger.Info("shutting down timelock-worker")
+	w.logger.Info("dumping operation store")
+	w.scheduler.dumpOperationStore(time.Now)
+
+	// Wait for all goroutines to finish.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+
+	<-isclosed.All(shutdownCtx, pollDone, procDone) //nolint:contextcheck
+
+	return nil
 }
 
-// ptrInt is a helper to take an int and return *int
+// ptrInt is a helper to take an int and return *int.
 func ptrInt(i int) *int { return &i }
 
 // pollNewSignatures continuously fetches only new signatures touching your program,
@@ -200,7 +202,7 @@ func (w *WorkerSolana) pollNewSignatures(
 					ctx,
 					w.timelockProgramKey,
 					&rpc.GetSignaturesForAddressOpts{
-						Limit: ptrInt(int(w.pollSize)),
+						Limit: &w.pollSize,
 						Until: until,
 					},
 				)
@@ -254,6 +256,83 @@ func (w *WorkerSolana) pollNewSignatures(
 	}()
 
 	return done, txCh
+}
+
+func (tw *WorkerSolana) processTransactions(ctx context.Context, txChannel <-chan *rpc.TransactionWithMeta) <-chan struct{} {
+	var (
+		done, newDone, oldDone = make(chan struct{}), make(chan struct{}), make(chan struct{})
+		ctxwc, cancel          = context.WithCancel(ctx)
+	)
+
+	// Cancel the context and shutdown the processing routine if no more logs are available.
+	go func() {
+		defer cancel()
+		<-isclosed.All(ctxwc, oldDone, newDone)
+	}()
+
+	// This is the goroutine watching over the polled txs in solana
+	go func() {
+		defer close(done)
+
+		for {
+			select {
+			case log, open := <-txChannel:
+				if !open {
+					close(newDone)
+					txChannel = nil
+
+					continue
+				}
+
+				if err := tw.handleTx(ctxwc, log); err != nil {
+					tw.logger.Errorf("error processing new log: %v\n", log)
+				}
+
+			case <-ctxwc.Done():
+				tw.logger.Info("cancelled processing logs")
+				SetReadyStatus(HealthStatusError)
+
+				return
+			}
+		}
+	}()
+
+	return done
+}
+
+func (tw *WorkerSolana) decodeLogMessage(log string) {
+
+}
+
+// handleTx handles the logic of parsing every solana tx, it looks through the tx logs and
+// parses the events emitted by the timelock program. Any other events are ignored.
+func (tw *WorkerSolana) handleTx(ctx context.Context, tx *rpc.TransactionWithMeta) error {
+	// ignore tx with no logs
+	if len(tx.Meta.LogMessages) == 0 {
+		return nil
+	}
+
+	// TODO: decode the log
+	event, err := tw.abi.EventByID(log.Topics[0])
+	if err != nil {
+		return err
+	}
+	if event == nil {
+		return fmt.Errorf("event is null")
+	}
+
+	switch event.Name {
+	case eventCallScheduled:
+		err = tw.handleEventScheduled(ctx, log)
+	case eventCallExecuted:
+		err = tw.handleEventExecuted(ctx, log)
+	case eventCancelled:
+		err = tw.handleEventCancelled(ctx, log)
+	default:
+		tw.logger.With("event", event.Name).Info("discarding event")
+	}
+
+	return err
 }
 
 // startLog prints the timelock-worker configuration.

@@ -135,7 +135,7 @@ func startTimelock(cmd *cobra.Command) {
 	}
 
 	if chainFamily == chain_selectors.FamilyEVM {
-		tWorker, err := timelock.NewTimelockWorker(nodeURL, timelockAddress, callProxyAddress, privateKey,
+		tWorker, err := timelock.NewTimelockWorkerEVM(nodeURL, timelockAddress, callProxyAddress, privateKey,
 			big.NewInt(fromBlock), pollPeriod, eventListenerPollPeriod, eventListenerPollSize, dryRun, slog)
 		if err != nil {
 			slog.Fatalf("error creating the timelock-worker: %s", err.Error())

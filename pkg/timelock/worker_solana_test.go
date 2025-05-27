@@ -148,7 +148,7 @@ func TestPollNewSignatures_Table(t *testing.T) {
 						Signatures []string `json:"signatures"`
 					}
 					require.NoError(t, json.Unmarshal(raw, &parsed))
-					exp := tc.txResponses[got-1]["transaction"].(map[string]interface{})["signatures"].([]string)
+					exp := tc.txResponses[0]["transaction"].(map[string]interface{})["signatures"].([]string)
 					require.Equal(t, exp, parsed.Signatures)
 				case <-done:
 					break Loop

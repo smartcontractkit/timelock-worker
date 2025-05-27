@@ -1,4 +1,4 @@
-package integration
+package evm
 
 import (
 	"crypto/ecdsa"

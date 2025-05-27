@@ -64,6 +64,7 @@ func NewMockSolanaRPC(t *testing.T, handler rpcHandler) *httptest.Server {
 			if err := json.NewEncoder(w).Encode(batchResp); err != nil {
 				t.Fatalf("encode batch resp: %v", err)
 			}
+
 			return
 		}
 
