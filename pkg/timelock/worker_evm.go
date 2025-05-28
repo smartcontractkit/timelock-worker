@@ -286,7 +286,7 @@ func (tw *WorkerEVM) subscribeNewLogs(ctx context.Context) (<-chan struct{}, <-c
 
 // pollNewLogs periodically retrieves logs from the Timelock and emit them through the channel it returns.
 func (tw *WorkerEVM) pollNewLogs(ctx context.Context) (<-chan struct{}, <-chan types.Log, error) {
-	lastBlock := tw.fromBlock
+	fromBlock := tw.fromBlock
 	logCh := make(chan types.Log)
 	done := make(chan struct{})
 
@@ -299,7 +299,10 @@ func (tw *WorkerEVM) pollNewLogs(ctx context.Context) (<-chan struct{}, <-chan t
 		defer ticker.Stop()
 
 		for {
-			lastBlock = tw.fetchAndDispatchLogs(ctx, logCh, lastBlock, nil)
+			lastBlock := tw.fetchAndDispatchLogs(ctx, logCh, fromBlock, nil)
+			if lastBlock != nil {
+				fromBlock = new(big.Int).Add(lastBlock, big.NewInt(1))
+			}
 
 			select {
 			case <-ticker.C:
@@ -369,11 +372,15 @@ func (tw *WorkerEVM) fetchAndDispatchLogs(
 		})
 		if err != nil {
 			tw.logger.With("error", err).Error("unable to fetch current block number from eth client")
-			return currentChainBlock
+			return nil
 		}
 		currentChainBlock = new(big.Int).SetUint64(blockNumber)
+		if fromBlock.Cmp(currentChainBlock) > 0 {
+			tw.logger.Infow("attempted to read block not mined yet", "fromBlock", fromBlock, "currentChainBlock", currentChainBlock)
+			return nil
+		}
 	}
-	toBlock := new(big.Int).SetUint64(min(currentChainBlock.Uint64(), fromBlock.Uint64()+tw.pollSize))
+	toBlock := new(big.Int).SetUint64(min(currentChainBlock.Uint64(), fromBlock.Uint64()+tw.pollSize-1))
 
 	query := tw.setupFilterQuery(fromBlock, toBlock)
 	tw.logger.Debugf("fetching logs from block %v to block %v", query.FromBlock, query.ToBlock)
@@ -396,14 +403,15 @@ func (tw *WorkerEVM) fetchAndDispatchLogs(
 			tw.logger.With("log", log).Debug("dispatching log")
 		case <-ctx.Done():
 			tw.logger.Debug("stopped while dispatching logs: incomplete retrieval.")
-			return toBlock
+			return fromBlock
 		}
 	}
 
 	if toBlock.Cmp(currentChainBlock) < 0 {
 		// we haven't reached the current block; re-run same procedure with
 		// the 'toBlock` as the start block
-		return tw.fetchAndDispatchLogs(ctx, logCh, toBlock, currentChainBlock)
+		fromBlock = new(big.Int).Add(toBlock, big.NewInt(1))
+		return tw.fetchAndDispatchLogs(ctx, logCh, fromBlock, currentChainBlock)
 	}
 
 	return toBlock
