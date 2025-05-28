@@ -148,9 +148,6 @@ func (w *WorkerSolana) Listen(ctx context.Context) error {
 	return nil
 }
 
-// ptrInt is a helper to take an int and return *int.
-func ptrInt(i int) *int { return &i }
-
 // pollNewSignatures continuously fetches only new signatures touching your program,
 // then loads each confirmed transaction so you can parse its LogMessages.
 func (w *WorkerSolana) pollNewSignatures(
@@ -195,7 +192,7 @@ func (w *WorkerSolana) pollNewSignatures(
 					ctx,
 					w.timelockProgramKey,
 					&rpc.GetSignaturesForAddressOpts{
-						Limit: ptrInt(w.pollSize),
+						Limit: &w.pollSize,
 						Until: until,
 					},
 				)
