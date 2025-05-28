@@ -16,6 +16,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/solana/utils/accesscontroller"
 	"github.com/smartcontractkit/chainlink-ccip/chains/solana/utils/common"
 	solanasdk "github.com/smartcontractkit/mcms/sdk/solana"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
@@ -201,6 +202,7 @@ func (s *solanaIntegrationTestSuite) scheduleTestIx(
 	predecessor,
 	salt [32]byte) (solana.Instruction, [32]byte) {
 	external_program_cpi_stub.SetProgramID(s.StubProgramID)
+	timelock2.SetProgramID(s.TimelockProgramID)
 	ixStub, err := external_program_cpi_stub.NewU8InstructionDataInstruction(uint8(10)).ValidateAndBuild()
 	s.Require().NoError(err, "Failed to create instruction data instruction")
 	ixData, err := ixStub.Data()
@@ -301,7 +303,27 @@ func (s *solanaIntegrationTestSuite) scheduleTestIx(
 		s.TestPrivateKey.PublicKey(),
 	).ValidateAndBuild()
 	s.Require().NoError(err)
-	testutils.SendAndConfirm(s.Ctx, s.T(), s.solanaClient, []solana.Instruction{scheduleIx}, s.TestPrivateKey, rpc.CommitmentConfirmed)
+	res := testutils.SendAndConfirm(s.Ctx, s.T(), s.solanaClient, []solana.Instruction{scheduleIx}, s.TestPrivateKey, rpc.CommitmentConfirmed)
+	s.Require().Nil(res.Meta.Err, "Transaction failed in program execution: %v", res.Meta.Err)
+	var txFinalized *rpc.GetTransactionResult
+	tx, err := res.Transaction.GetTransaction()
+	s.Require().NoError(err, "Failed to decode transaction")
+	s.Require().NotNil(tx, "Decoded transaction is nil")
+	s.Require().NotEmpty(tx.Signatures, "Transaction contains no signatures")
 
+	sig := tx.Signatures[0]
+	s.EventuallyWithT(func(c *assert.CollectT) {
+		var err error
+		txFinalized, err = s.solanaClient.GetTransaction(
+			s.Ctx,
+			sig,
+			&rpc.GetTransactionOpts{
+				Encoding:   solana.EncodingBase64,
+				Commitment: rpc.CommitmentFinalized,
+			},
+		)
+		assert.NoError(c, err)
+		assert.NotNil(c, txFinalized)
+	}, 30*time.Second, 500*time.Millisecond)
 	return ixStub, operationID
 }

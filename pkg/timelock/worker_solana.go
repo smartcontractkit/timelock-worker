@@ -9,10 +9,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/gagliardetto/solana-go/rpc/jsonrpc"
+
+	"github.com/smartcontractkit/mcms/sdk"
 	solanasdk "github.com/smartcontractkit/mcms/sdk/solana"
 	"go.uber.org/zap"
 
@@ -22,17 +23,19 @@ import (
 // WorkerSolana represents a solana worker instance. It fetches periodically the latest signatures
 // and transactions from the Solana RPC node and dispatches them to the scheduler.
 type WorkerSolana struct {
-	solanaClient       *rpc.Client
-	timelockProgramKey solana.PublicKey
-	instanceSeed       solanasdk.PDASeed // instanceSeed is the seed used to derive the timelock instance.
-	pollPeriod         int64
-	listenerPollPeriod int64
-	pollSize           int
-	dryRun             bool
-	logger             *zap.SugaredLogger
-	privateKey         solana.PrivateKey
-	lastSignature      *solana.Signature // last signature processed
-	scheduler          Scheduler
+	solanaClient        *rpc.Client
+	timelockProgramKey  solana.PublicKey
+	instanceSeed        solanasdk.PDASeed // instanceSeed is the seed used to derive the timelock instance.
+	timelockFullAddress string            // timelockFullAddress is the full address of the timelock program <programID>.<instanceSeed>
+	pollPeriod          int64
+	listenerPollPeriod  int64
+	pollSize            int
+	dryRun              bool
+	inspector           sdk.TimelockInspector // inspector is used to query timelock state
+	logger              *zap.SugaredLogger
+	privateKey          solana.PrivateKey
+	lastSignature       *solana.Signature // last signature processed
+	scheduler           Scheduler
 }
 
 // NewTimelockWorkerSolana initializes and returns a timelockWorker.
@@ -80,17 +83,20 @@ func NewTimelockWorkerSolana(
 
 	// All variables provided are correct, start allocating new structures.
 	client := rpc.New(nodeURL)
+	inspector := solanasdk.NewTimelockInspector(client)
 
 	tWorker := &WorkerSolana{
-		solanaClient:       client,
-		instanceSeed:       instanceSeed,
-		timelockProgramKey: timelockPubKey,
-		pollPeriod:         pollPeriod,
-		listenerPollPeriod: listenerPollPeriod,
-		pollSize:           pollSize,
-		dryRun:             dryRun,
-		logger:             logger,
-		privateKey:         privateKeySolana,
+		solanaClient:        client,
+		instanceSeed:        instanceSeed,
+		timelockFullAddress: timelockAddress,
+		timelockProgramKey:  timelockPubKey,
+		pollPeriod:          pollPeriod,
+		listenerPollPeriod:  listenerPollPeriod,
+		pollSize:            pollSize,
+		inspector:           inspector,
+		dryRun:              dryRun,
+		logger:              logger,
+		privateKey:          privateKeySolana,
 	}
 
 	if dryRun {
@@ -130,7 +136,8 @@ func (w *WorkerSolana) Listen(ctx context.Context) error {
 
 	w.logger.Info("shutting down timelock-worker")
 	w.logger.Info("dumping operation store")
-	w.scheduler.dumpOperationStore(time.Now)
+	// TODO: re-add when scheduler is implemented
+	//w.scheduler.dumpOperationStore(time.Now)
 
 	// Wait for all goroutines to finish.
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Second*5)
@@ -166,23 +173,6 @@ func (w *WorkerSolana) pollNewSignatures(
 			w.pollSize,
 		)
 
-		// 1) Anchor on first run
-		if w.lastSignature == nil {
-			signaturesResp, err := w.solanaClient.GetSignaturesForAddressWithOpts(
-				ctx,
-				w.timelockProgramKey,
-				&rpc.GetSignaturesForAddressOpts{Limit: ptrInt(1)},
-			)
-			if err != nil {
-				w.logger.Errorf("anchor failed: %v", err)
-			} else if len(signaturesResp) > 0 {
-				w.lastSignature = &signaturesResp[0].Signature
-				w.logger.Infof("anchored to latest: %s", *w.lastSignature)
-			} else {
-				w.logger.Warn("no existing sigs to anchor")
-			}
-		}
-
 		ticker := time.NewTicker(time.Duration(w.pollPeriod) * time.Second)
 		defer ticker.Stop()
 
@@ -193,16 +183,19 @@ func (w *WorkerSolana) pollNewSignatures(
 				return
 
 			case <-ticker.C:
-				// 2) fetch sigs
+				w.logger.Infof("new pollNewSignatures tick: %s", time.Now().Format(time.RFC3339))
+
 				var until solana.Signature
 				if w.lastSignature != nil {
 					until = *w.lastSignature
 				}
+
+				// Always try to fetch signatures
 				sigs, err := w.solanaClient.GetSignaturesForAddressWithOpts(
 					ctx,
 					w.timelockProgramKey,
 					&rpc.GetSignaturesForAddressOpts{
-						Limit: &w.pollSize,
+						Limit: ptrInt(w.pollSize),
 						Until: until,
 					},
 				)
@@ -211,16 +204,20 @@ func (w *WorkerSolana) pollNewSignatures(
 					continue
 				}
 				if len(sigs) == 0 {
-					w.logger.Debug("no new sigs")
+					if w.lastSignature == nil {
+						w.logger.Warn("no existing sigs to anchor")
+					} else {
+						w.logger.Debug("no new sigs")
+					}
 					continue
 				}
+
 				w.logger.Infof("found %d new signatures", len(sigs))
 
-				// 3) build JSON-RPC batch requests (oldest→newest)
+				// Build JSON-RPC batch requests (oldest→newest)
 				requests := make(jsonrpc.RPCRequests, len(sigs))
 				for i, info := range sigs {
-					// reverse so index 0 = oldest
-					j := len(sigs) - 1 - i
+					j := len(sigs) - 1 - i // reverse to oldest first
 					requests[j] = jsonrpc.NewRequest(
 						"getTransaction",
 						info.Signature,
@@ -228,26 +225,26 @@ func (w *WorkerSolana) pollNewSignatures(
 					)
 				}
 
-				// 4) fire them all at once
+				// Call getTransaction in batch
 				resps, err := w.solanaClient.RPCCallBatch(ctx, requests)
 				if err != nil {
 					w.logger.Errorf("RPCCallBatch failed: %v", err)
 					continue
 				}
 
-				// 5) emit results in order
 				for i, resp := range resps {
-					// match back to sigs reversed
 					sigInfo := sigs[len(sigs)-1-i]
 					if resp.Error != nil {
 						w.logger.Warnf("tx %s failed: %v", sigInfo.Signature, resp.Error)
 						continue
 					}
+
 					tx := new(rpc.TransactionWithMeta)
 					if err := resp.GetObject(&tx); err != nil {
 						w.logger.Warnf("decode %s failed: %v", sigInfo.Signature, err)
 						continue
 					}
+
 					w.lastSignature = &sigInfo.Signature
 					txCh <- tx
 				}
@@ -258,7 +255,7 @@ func (w *WorkerSolana) pollNewSignatures(
 	return done, txCh
 }
 
-func (tw *WorkerSolana) processTransactions(ctx context.Context, txChannel <-chan *rpc.TransactionWithMeta) <-chan struct{} {
+func (w *WorkerSolana) processTransactions(ctx context.Context, txChannel <-chan *rpc.TransactionWithMeta) <-chan struct{} {
 	var (
 		done, newDone, oldDone = make(chan struct{}), make(chan struct{}), make(chan struct{})
 		ctxwc, cancel          = context.WithCancel(ctx)
@@ -284,12 +281,12 @@ func (tw *WorkerSolana) processTransactions(ctx context.Context, txChannel <-cha
 					continue
 				}
 
-				if err := tw.handleTx(ctxwc, log); err != nil {
-					tw.logger.Errorf("error processing new log: %v\n", log)
+				if err := w.handleTx(ctxwc, log); err != nil {
+					w.logger.Errorf("error processing new log: %v\n", log)
 				}
 
 			case <-ctxwc.Done():
-				tw.logger.Info("cancelled processing logs")
+				w.logger.Info("cancelled processing logs")
 				SetReadyStatus(HealthStatusError)
 
 				return
@@ -300,50 +297,120 @@ func (tw *WorkerSolana) processTransactions(ctx context.Context, txChannel <-cha
 	return done
 }
 
-func (tw *WorkerSolana) decodeLogMessage(log string) {
-
-}
-
 // handleTx handles the logic of parsing every solana tx, it looks through the tx logs and
 // parses the events emitted by the timelock program. Any other events are ignored.
-func (tw *WorkerSolana) handleTx(ctx context.Context, tx *rpc.TransactionWithMeta) error {
+func (w *WorkerSolana) handleTx(ctx context.Context, tx *rpc.TransactionWithMeta) error {
 	// ignore tx with no logs
 	if len(tx.Meta.LogMessages) == 0 {
 		return nil
 	}
 
 	// TODO: decode the log
-	event, err := tw.abi.EventByID(log.Topics[0])
+	timelockEvent, err := ParseTimelockEvents(tx)
 	if err != nil {
-		return err
-	}
-	if event == nil {
-		return fmt.Errorf("event is null")
+		return fmt.Errorf("failed to parse timelock events: %w", err)
 	}
 
-	switch event.Name {
-	case eventCallScheduled:
-		err = tw.handleEventScheduled(ctx, log)
-	case eventCallExecuted:
-		err = tw.handleEventExecuted(ctx, log)
-	case eventCancelled:
-		err = tw.handleEventCancelled(ctx, log)
-	default:
-		tw.logger.With("event", event.Name).Info("discarding event")
+	for _, scheduledEvent := range timelockEvent.Scheduled {
+		w.logger.Debugf("found event scheduled: %s", scheduledEvent.ID)
+		err = w.handleEventScheduled(ctx, scheduledEvent)
+		if err != nil {
+			w.logger.Errorf("error handling scheduled event: %v", err)
+			w.logger.Warnf("skipping event scheduled due to failure in checking operation state: %s", scheduledEvent)
+			continue
+		}
+	}
+	for _, executedEvent := range timelockEvent.Executed {
+		w.logger.Debugf("found event executed: %s", executedEvent.ID)
+		err = w.handleEventExecuted(ctx, executedEvent)
+		if err != nil {
+			w.logger.Errorf("error handling executed event: %v", err)
+			w.logger.Warnf("skipping event executed due to failure in checking operation state: %s", executedEvent)
+			continue
+		}
+	}
+	for _, bypasserEvent := range timelockEvent.Cancelled {
+		w.logger.Debugf("found event cancelled: %s", bypasserEvent.ID)
+		err = w.handleEventCancelled(ctx, bypasserEvent)
+		if err != nil {
+			w.logger.Errorf("error handling cancelled event: %v", err)
+			w.logger.Warnf("skipping event cancelled due to failure in checking operation state: %s", bypasserEvent)
+			continue
+		}
+
+	}
+	return nil
+}
+
+// handleEventCancelled checks if the operation is cancelled and deletes it from the scheduler if it is.
+func (w *WorkerSolana) handleEventCancelled(_ context.Context, event Cancelled) error {
+	w.logger.With(operationID, fmt.Sprintf("%x", event.ID)).
+		Infof("%s received, cancelling operation", eventCancelled)
+
+	// TODO: add scheduler call once scheduler is implemented
+	//w.scheduler.delFromScheduler(event.ID)
+
+	return nil
+}
+
+// handleEventExecuted checks if the operation is done and deletes it from the scheduler if it is.
+func (w *WorkerSolana) handleEventExecuted(ctx context.Context, event CallExecuted) error {
+	logger := w.logger.With(eventIndex, fmt.Sprintf("%x", event.Index)).
+		With(eventTarget, event.Target.String()).
+		With(operationID, fmt.Sprintf("%x", event.ID))
+
+	isDone, err := w.inspector.IsOperationDone(ctx, w.timelockFullAddress, event.ID)
+	if err != nil {
+		return fmt.Errorf("timelock.isOperationDone call failed (operation id: %x): %w", event.ID, err)
+	}
+	if isDone {
+		logger.Infof("%s received, deleting operation from scheduler", eventCallExecuted)
+		// TODO: add scheduler call once scheduler is implemented
+		//w.scheduler.delFromScheduler(event.ID)
+	} else {
+		logger.Warn("operation not done; skipping deletion from scheduler")
 	}
 
-	return err
+	return nil
+}
+
+// handleEventScheduled checks if the operation is already scheduled and adds it to the scheduler if it is not.
+func (w *WorkerSolana) handleEventScheduled(ctx context.Context, event CallScheduled) error {
+	logger := w.logger.With(eventIndex, fmt.Sprintf("%x", event.Index)).
+		With(eventTarget, event.Target.String()).
+		With(operationID, fmt.Sprintf("%x", event.ID))
+
+	isDone, err := w.inspector.IsOperationDone(ctx, w.timelockFullAddress, event.ID)
+	if err != nil {
+		return fmt.Errorf("timelock.isOperationDone call failed (operation id: %x): %w", event.ID, err)
+	}
+	if !isDone {
+		isOp, err := w.inspector.IsOperation(ctx, w.timelockFullAddress, event.ID)
+		if err != nil {
+			return fmt.Errorf("timelock.isOperation call failed (operation id: %x)", event.ID)
+		}
+
+		if isOp {
+			logger.Infof("%s received", eventCallScheduled)
+			// TODO: add scheduler call once scheduler is implemented
+			// w.scheduler.addToScheduler(cs)
+		} else {
+			logger.Warn("invalid operation")
+		}
+	}
+
+	return nil
 }
 
 // startLog prints the timelock-worker configuration.
 func (w *WorkerSolana) startLog() {
 	w.logger.Info("timelock-worker started [solana]")
-	w.logger.Infof("\tTimelock prorgam addresses: %v", w.timelockProgramKey.String())
+	w.logger.Infof("\tTimelock program addresses: %v", w.timelockProgramKey.String())
 
 	wallet := w.privateKey.PublicKey()
 
 	w.logger.Infof("\taccount address: %v", wallet)
 	w.logger.Infof("\tPoll Period: %v", time.Duration(w.pollPeriod*int64(time.Second)).String())
 	w.logger.Infof("\tEvent Listener Poll Period: %v", time.Duration(w.listenerPollPeriod*int64(time.Second)).String())
-	w.logger.Infof("\tEvent Listener Poll # Logs%v", w.pollSize)
+	w.logger.Infof("\tEvent Listener Poll #Logs: %v", w.pollSize)
 }

@@ -4,19 +4,13 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
+	"fmt"
 	"strings"
 
-	"github.com/gagliardetto/solana-go"
+	bin "github.com/gagliardetto/binary"
+	solana "github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
 )
-
-// TxTimelockEvents groups all decoded events from one transaction.
-type TxTimelockEvents struct {
-	Scheduled []CallScheduled
-	Executed  []CallExecuted
-	Bypasser  []BypasserCallExecuted
-	Cancelled []Cancelled
-}
 
 // eventDiscriminator computes the first 8 bytes of sha256("event:<EventName>")
 func eventDiscriminator(name string) [8]byte {
@@ -26,8 +20,9 @@ func eventDiscriminator(name string) [8]byte {
 	return disc
 }
 
-// CallScheduled matches the CallScheduled Anchor event:
-// https://github.com/smartcontractkit/chainlink-ccip/blob/bca6b9d1cd7ebaf0487bf14eba2675d6ef1d0673/chains/solana/contracts/programs/timelock/src/event.rs#L5-L13
+// --- Event structs ---
+
+// CallScheduled corresponds to #[event] CallScheduled { id, index, target, predecessor, salt, delay, data }
 type CallScheduled struct {
 	ID          [32]byte
 	Index       uint64
@@ -38,15 +33,7 @@ type CallScheduled struct {
 	Data        []byte
 }
 
-// CallScheduledDiscriminator 8 bytes discriminator for CallScheduled
-var CallScheduledDiscriminator = eventDiscriminator("CallScheduled")
-
-func (e *CallScheduled) UnmarshalWithDecoder(d *borsh.Decoder) error {
-	return d.Decode(e)
-}
-
-// CallExecuted matches the Anchor event:
-// #[event] pub struct CallExecuted { id: [u8;32], index: u64, target: Pubkey, data: Vec<u8> }
+// CallExecuted corresponds to #[event] CallExecuted { id, index, target, data }
 type CallExecuted struct {
 	ID     [32]byte
 	Index  uint64
@@ -54,44 +41,28 @@ type CallExecuted struct {
 	Data   []byte
 }
 
-// discriminator for CallExecuted
-var CallExecutedDiscriminator = eventDiscriminator("CallExecuted")
-
-func (e *CallExecuted) UnmarshalWithDecoder(d *borsh.Decoder) error {
-	return d.Decode(e)
-}
-
-// BypasserCallExecuted matches the Anchor event:
-// #[event] pub struct BypasserCallExecuted { index: u64, target: Pubkey, data: Vec<u8> }
-type BypasserCallExecuted struct {
-	Index  uint64
-	Target solana.PublicKey
-	Data   []byte
-}
-
-// discriminator for BypasserCallExecuted
-var BypasserCallExecutedDiscriminator = eventDiscriminator("BypasserCallExecuted")
-
-func (e *BypasserCallExecuted) UnmarshalWithDecoder(d *borsh.Decoder) error {
-	return d.Decode(e)
-}
-
-// Cancelled matches the Anchor event:
-// #[event] pub struct Cancelled { id: [u8;32] }
+// Cancelled corresponds to #[event] Cancelled { id }
 type Cancelled struct {
 	ID [32]byte
 }
 
-// discriminator for Cancelled
-var CancelledDiscriminator = eventDiscriminator("Cancelled")
+// Discriminators for each event type
+var (
+	CallScheduledDiscriminator = eventDiscriminator("CallScheduled")
+	CallExecutedDiscriminator  = eventDiscriminator("CallExecuted")
+	CancelledDiscriminator     = eventDiscriminator("Cancelled")
+)
 
-func (e *Cancelled) UnmarshalWithDecoder(d *borsh.Decoder) error {
-	return d.Decode(e)
+// TimelockEvents groups all decoded events from one Solana transaction.
+type TimelockEvents struct {
+	Scheduled []CallScheduled
+	Executed  []CallExecuted
+	Cancelled []Cancelled
 }
 
 // ParseTimelockEvents extracts and decodes Anchor events from tx.Meta.LogMessages.
-func ParseTimelockEvents(tx *rpc.TransactionWithMeta) (*TxTimelockEvents, error) {
-	out := &TxTimelockEvents{}
+func ParseTimelockEvents(tx *rpc.TransactionWithMeta) (*TimelockEvents, error) {
+	out := &TimelockEvents{}
 
 	for _, log := range tx.Meta.LogMessages {
 		if !strings.HasPrefix(log, "Program data: ") {
@@ -102,35 +73,40 @@ func ParseTimelockEvents(tx *rpc.TransactionWithMeta) (*TxTimelockEvents, error)
 		if err != nil || len(blob) < 8 {
 			continue
 		}
+
 		disc := blob[:8]
 		payload := blob[8:]
-
-		d := borsh.NewDecoder(bytes.NewReader(payload))
 
 		switch {
 		case bytes.Equal(disc, CallScheduledDiscriminator[:]):
 			var e CallScheduled
-			if err := e.UnmarshalWithDecoder(d); err == nil {
+			dec := bin.NewBorshDecoder(payload)
+			if err := dec.Decode(&e); err == nil {
 				out.Scheduled = append(out.Scheduled, e)
+			} else {
+				fmt.Printf("  Decode error: %v\n", err)
 			}
 
 		case bytes.Equal(disc, CallExecutedDiscriminator[:]):
 			var e CallExecuted
-			if err := e.UnmarshalWithDecoder(d); err == nil {
+			dec := bin.NewBorshDecoder(payload)
+			if err := dec.Decode(&e); err == nil {
 				out.Executed = append(out.Executed, e)
-			}
-
-		case bytes.Equal(disc, BypasserCallExecutedDiscriminator[:]):
-			var e BypasserCallExecuted
-			if err := e.UnmarshalWithDecoder(d); err == nil {
-				out.Bypasser = append(out.Bypasser, e)
+			} else {
+				fmt.Printf("  Decode error: %v\n", err)
 			}
 
 		case bytes.Equal(disc, CancelledDiscriminator[:]):
 			var e Cancelled
-			if err := e.UnmarshalWithDecoder(d); err == nil {
+			dec := bin.NewBorshDecoder(payload)
+			if err := dec.Decode(&e); err == nil {
 				out.Cancelled = append(out.Cancelled, e)
+			} else {
+				fmt.Printf("  Decode error: %v\n", err)
 			}
+
+		default:
+			continue
 		}
 	}
 

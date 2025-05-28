@@ -3,13 +3,17 @@ package timelock
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
+	"github.com/smartcontractkit/mcms/sdk/mocks"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -19,8 +23,24 @@ type fakeSig struct {
 	Slot      uint64           `json:"slot"`
 }
 
-func TestPollNewSignatures_Table(t *testing.T) {
-
+func mustRandomSignature(t *testing.T) (solana.Signature, string) {
+	var b [64]byte
+	_, err := rand.Read(b[:])
+	require.NoError(t, err)
+	sig := solana.SignatureFromBytes(b[:])
+	return sig, sig.String()
+}
+func TestPollNewSignatures(t *testing.T) {
+	const (
+		sigStrA = "3n8uFwJjTyBR3UqTGUjMncmzMJkjp7sk6uMvGCazgGNsCJpKaDxnKnUR3XNG2Exz4MyfpNHCEWGu2gZiSGGZVK3c"
+		sigStr1 = "5eJiBS2dDCLdVZSLvXCLCeu3LL8eb9StAFmsDCpMTZZo8QAVDqAxowLqa5Yf2CtuwsAXeodDaUBgb63HGrj8Cxd6"
+		sigStr2 = "2oCj3DD8iZ5YBJ7UbYiY2EM2kJrd1uPTftDbLbZbLmx1ybHJn2dcWxF9PPCfjVkTh2vYpGNP7dXZG74w4jHTHGSE"
+	)
+	var (
+		sigA = solana.MustSignatureFromBase58(sigStrA)
+		sig1 = solana.MustSignatureFromBase58(sigStr1)
+		sig2 = solana.MustSignatureFromBase58(sigStr2)
+	)
 	cases := []struct {
 		name               string
 		signaturesResponse []fakeSig
@@ -36,12 +56,12 @@ func TestPollNewSignatures_Table(t *testing.T) {
 		{
 			name: "single signature => single tx",
 			signaturesResponse: []fakeSig{
-				{Signature: solana.SignatureFromBytes([]byte{}), Slot: 10},
+				{Signature: sigA, Slot: 10},
 			},
 			txResponses: []map[string]interface{}{{
 				"slot": 10,
 				"transaction": map[string]interface{}{
-					"signatures": []string{"SigAAAA1111111111111111111111111111111111"},
+					"signatures": []string{sigStrA},
 					"message": map[string]interface{}{
 						"accountKeys":  []string{"A"},
 						"header":       map[string]interface{}{"numRequiredSignatures": 1, "numReadonlySignedAccounts": 0, "numReadonlyUnsignedAccounts": 0},
@@ -55,23 +75,31 @@ func TestPollNewSignatures_Table(t *testing.T) {
 		{
 			name: "multiple signatures => multiple txs",
 			signaturesResponse: []fakeSig{
-				{Signature: solana.SignatureFromBytes([]byte{'1'}), Slot: 5},
-				{Signature: solana.SignatureFromBytes([]byte{'2'}), Slot: 6},
+				{Signature: sig1, Slot: 5},
+				{Signature: sig2, Slot: 6},
 			},
 			txResponses: []map[string]interface{}{
 				{
 					"slot": 5,
 					"transaction": map[string]interface{}{
-						"signatures": []string{"Sig11111111111111111111111111111111111111"},
-						"message":    map[string]interface{}{"accountKeys": []string{"A"}, "header": map[string]interface{}{"numRequiredSignatures": 1, "numReadonlySignedAccounts": 0, "numReadonlyUnsignedAccounts": 0}, "instructions": []interface{}{}},
+						"signatures": []string{sigStr1},
+						"message": map[string]interface{}{
+							"accountKeys":  []string{"A"},
+							"header":       map[string]interface{}{"numRequiredSignatures": 1, "numReadonlySignedAccounts": 0, "numReadonlyUnsignedAccounts": 0},
+							"instructions": []interface{}{},
+						},
 					},
 					"meta": map[string]interface{}{},
 				},
 				{
 					"slot": 6,
 					"transaction": map[string]interface{}{
-						"signatures": []string{"Sig22222222222222222222222222222222222222"},
-						"message":    map[string]interface{}{"accountKeys": []string{"B"}, "header": map[string]interface{}{"numRequiredSignatures": 1, "numReadonlySignedAccounts": 0, "numReadonlyUnsignedAccounts": 0}, "instructions": []interface{}{}},
+						"signatures": []string{sigStr2},
+						"message": map[string]interface{}{
+							"accountKeys":  []string{"B"},
+							"header":       map[string]interface{}{"numRequiredSignatures": 1, "numReadonlySignedAccounts": 0, "numReadonlyUnsignedAccounts": 0},
+							"instructions": []interface{}{},
+						},
 					},
 					"meta": map[string]interface{}{},
 				},
@@ -93,10 +121,9 @@ func TestPollNewSignatures_Table(t *testing.T) {
 
 				case "getTransaction":
 					txCalls.Add(1)
-					// req.Params[0] is the signature string
 					var sigStr string
 					require.NoError(t, json.Unmarshal(req.Params[0], &sigStr))
-					// find matching index
+
 					idx := -1
 					for i, fs := range tc.signaturesResponse {
 						if fs.Signature.String() == sigStr {
@@ -119,12 +146,13 @@ func TestPollNewSignatures_Table(t *testing.T) {
 			client := rpc.New(mock.URL)
 			timelockKey, err := solana.NewRandomPrivateKey()
 			require.NoError(t, err)
+
 			w := &WorkerSolana{
 				logger:             testLogger,
 				solanaClient:       client,
 				timelockProgramKey: timelockKey.PublicKey(),
 				pollPeriod:         1,
-				pollSize:           uint64(len(tc.signaturesResponse) + 1),
+				pollSize:           len(tc.signaturesResponse) + 1,
 			}
 
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -141,15 +169,15 @@ func TestPollNewSignatures_Table(t *testing.T) {
 						break Loop
 					}
 					got++
-					// re-extract the signature from tx.Transaction JSON
 					raw, err := json.Marshal(tx.Transaction)
 					require.NoError(t, err)
 					var parsed struct {
 						Signatures []string `json:"signatures"`
 					}
 					require.NoError(t, json.Unmarshal(raw, &parsed))
-					exp := tc.txResponses[0]["transaction"].(map[string]interface{})["signatures"].([]string)
+					exp := tc.txResponses[len(tc.txResponses)-got]["transaction"].(map[string]interface{})["signatures"].([]string)
 					require.Equal(t, exp, parsed.Signatures)
+
 				case <-done:
 					break Loop
 				case <-ctx.Done():
@@ -162,4 +190,113 @@ func TestPollNewSignatures_Table(t *testing.T) {
 			require.Equal(t, tc.wantTxCount, got, "number of transactions received")
 		})
 	}
+}
+
+func TestHandleEventCancelled(t *testing.T) {
+	id := [32]byte{1, 2, 3}
+
+	worker := &WorkerSolana{
+		logger: testLogger,
+	}
+
+	err := worker.handleEventCancelled(context.Background(), Cancelled{ID: id})
+	require.NoError(t, err)
+	// TODO: once scheduler is added we can assert expectation from a mock scheduler here.
+}
+
+func TestHandleEventExecuted_Done(t *testing.T) {
+	id := [32]byte{4, 5, 6}
+	mockInsp := new(mocks.TimelockInspector)
+	mockInsp.On("IsOperationDone", mock.Anything, "some.addr", id).Return(true, nil)
+
+	worker := &WorkerSolana{
+		timelockFullAddress: "some.addr",
+		inspector:           mockInsp,
+		logger:              testLogger,
+	}
+	event := CallExecuted{ID: id, Target: solana.PublicKey{}}
+	err := worker.handleEventExecuted(context.Background(), event)
+	require.NoError(t, err)
+	mockInsp.AssertExpectations(t)
+	// TODO: once scheduler is added we can assert expectation from a mock scheduler here.
+}
+
+func TestHandleEventScheduled_IsOp(t *testing.T) {
+	id := [32]byte{7, 8, 9}
+	mockInsp := new(mocks.TimelockInspector)
+	mockInsp.On("IsOperationDone", mock.Anything, "some.addr", id).Return(false, nil)
+	mockInsp.On("IsOperation", mock.Anything, "some.addr", id).Return(true, nil)
+
+	worker := &WorkerSolana{
+		timelockFullAddress: "some.addr",
+		inspector:           mockInsp,
+		logger:              testLogger,
+	}
+	event := CallScheduled{ID: id, Target: solana.PublicKey{}}
+	err := worker.handleEventScheduled(context.Background(), event)
+	require.NoError(t, err)
+	mockInsp.AssertExpectations(t)
+}
+
+func TestHandleEventScheduled_OperationDone(t *testing.T) {
+	id := [32]byte{10, 11, 12}
+	mockInsp := new(mocks.TimelockInspector)
+	mockInsp.On("IsOperationDone", mock.Anything, "some.addr", id).Return(true, nil)
+
+	worker := &WorkerSolana{
+		timelockFullAddress: "some.addr",
+		inspector:           mockInsp,
+		logger:              testLogger,
+	}
+	event := CallScheduled{ID: id, Target: solana.PublicKey{}}
+	err := worker.handleEventScheduled(context.Background(), event)
+	require.NoError(t, err)
+	mockInsp.AssertExpectations(t)
+}
+
+func TestHandleEventExecuted_NotDone(t *testing.T) {
+	id := [32]byte{13, 14, 15}
+	mockInsp := new(mocks.TimelockInspector)
+	mockInsp.On("IsOperationDone", mock.Anything, "some.addr", id).Return(false, nil)
+
+	worker := &WorkerSolana{
+		timelockFullAddress: "some.addr",
+		inspector:           mockInsp,
+		logger:              testLogger,
+	}
+	event := CallExecuted{ID: id, Target: solana.PublicKey{}}
+	err := worker.handleEventExecuted(context.Background(), event)
+	require.NoError(t, err)
+	mockInsp.AssertExpectations(t)
+	// TODO: once scheduler is added we can assert expectation from a mock scheduler here.
+}
+
+func TestHandleEventScheduled_IsOp_Error(t *testing.T) {
+	id := [32]byte{16, 17, 18}
+	mockInsp := new(mocks.TimelockInspector)
+	mockInsp.On("IsOperationDone", mock.Anything, "some.addr", id).Return(false, nil)
+	mockInsp.On("IsOperation", mock.Anything, "some.addr", id).Return(false, errors.New("boom"))
+
+	worker := &WorkerSolana{
+		timelockFullAddress: "some.addr",
+		inspector:           mockInsp,
+		logger:              testLogger,
+	}
+	event := CallScheduled{ID: id, Target: solana.PublicKey{}}
+	require.ErrorContains(t, worker.handleEventScheduled(context.Background(), event), "timelock.isOperation call failed")
+}
+
+func TestHandleEventExecuted_Error(t *testing.T) {
+	id := [32]byte{19, 20, 21}
+	mockInsp := new(mocks.TimelockInspector)
+	mockInsp.On("IsOperationDone", mock.Anything, "some.addr", id).Return(false, errors.New("bad state"))
+
+	worker := &WorkerSolana{
+		timelockFullAddress: "some.addr",
+		inspector:           mockInsp,
+		logger:              testLogger,
+	}
+	event := CallExecuted{ID: id, Target: solana.PublicKey{}}
+	require.ErrorContains(t, worker.handleEventExecuted(context.Background(), event), "timelock.isOperationDone call failed")
+	// TODO: once scheduler is added we can assert expectation from a mock scheduler here.
 }
