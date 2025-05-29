@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/big"
 
+	eth "github.com/ethereum/go-ethereum/common"
 	bindings "github.com/smartcontractkit/ccip-owner-contracts/gethwrappers"
 )
 
@@ -33,4 +34,17 @@ func (cs *evmTimelockCallScheduled) BlockNumber() *big.Int {
 
 func (cs *evmTimelockCallScheduled) TxHash() string {
 	return fmt.Sprintf("%x", cs.callScheduled.Raw.TxHash[:])
+}
+
+func (cs *evmTimelockCallScheduled) Predecessor() eth.Hash {
+	return cs.callScheduled.Predecessor
+}
+
+func (cs *evmTimelockCallScheduled) Salt() eth.Hash {
+	return cs.callScheduled.Salt
+}
+
+func (cs *evmTimelockCallScheduled) String() string {
+	return fmt.Sprintf("[evmTimelockCallScheduled - id:0x%x,index:%v,blockNumber:%v,txHash:%v,predecessor:%v,salt:%v]",
+		cs.Id(), cs.Index(), cs.BlockNumber(), cs.TxHash(), cs.Predecessor(), cs.Salt())
 }
