@@ -206,6 +206,7 @@ func (w *WorkerSolana) pollNewSignatures(
 					} else {
 						w.logger.Debug("no new sigs")
 					}
+
 					continue
 				}
 
@@ -302,8 +303,7 @@ func (w *WorkerSolana) handleTx(ctx context.Context, tx *rpc.TransactionWithMeta
 		return nil
 	}
 
-	// TODO: decode the log
-	timelockEvent, err := ParseTimelockEvents(tx)
+	timelockEvent, err := ParseTimelockEvents(w.logger, tx)
 	if err != nil {
 		return fmt.Errorf("failed to parse timelock events: %w", err)
 	}
@@ -314,6 +314,7 @@ func (w *WorkerSolana) handleTx(ctx context.Context, tx *rpc.TransactionWithMeta
 		if err != nil {
 			w.logger.Errorf("error handling scheduled event: %v", err)
 			w.logger.Warnf("skipping event scheduled due to failure in checking operation state: %s", scheduledEvent)
+
 			continue
 		}
 	}
@@ -323,31 +324,25 @@ func (w *WorkerSolana) handleTx(ctx context.Context, tx *rpc.TransactionWithMeta
 		if err != nil {
 			w.logger.Errorf("error handling executed event: %v", err)
 			w.logger.Warnf("skipping event executed due to failure in checking operation state: %s", executedEvent)
+
 			continue
 		}
 	}
 	for _, bypasserEvent := range timelockEvent.Cancelled {
 		w.logger.Debugf("found event cancelled: %s", bypasserEvent.ID)
-		err = w.handleEventCancelled(ctx, bypasserEvent)
-		if err != nil {
-			w.logger.Errorf("error handling cancelled event: %v", err)
-			w.logger.Warnf("skipping event cancelled due to failure in checking operation state: %s", bypasserEvent)
-			continue
-		}
-
+		w.handleEventCancelled(ctx, bypasserEvent)
 	}
+
 	return nil
 }
 
 // handleEventCancelled checks if the operation is cancelled and deletes it from the scheduler if it is.
-func (w *WorkerSolana) handleEventCancelled(_ context.Context, event Cancelled) error {
+func (w *WorkerSolana) handleEventCancelled(_ context.Context, event Cancelled) {
 	w.logger.With(operationID, fmt.Sprintf("%x", event.ID)).
 		Infof("%s received, cancelling operation", eventCancelled)
 
 	// TODO: add scheduler call once scheduler is implemented
 	//w.scheduler.delFromScheduler(event.ID)
-
-	return nil
 }
 
 // handleEventExecuted checks if the operation is done and deletes it from the scheduler if it is.

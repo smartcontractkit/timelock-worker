@@ -185,7 +185,7 @@ func TestPollNewSignatures(t *testing.T) {
 				}
 			}
 
-			require.Equal(t, int32(2), sigCalls.Load(), "should call getSignaturesForAddress exactly once")
+			require.Equal(t, int32(1), sigCalls.Load(), "should call getSignaturesForAddress exactly once")
 			require.Equal(t, int32(len(tc.signaturesResponse)), txCalls.Load(), "should call getTransaction once per signature")
 			require.Equal(t, tc.wantTxCount, got, "number of transactions received")
 		})
@@ -199,8 +199,7 @@ func TestHandleEventCancelled(t *testing.T) {
 		logger: testLogger,
 	}
 
-	err := worker.handleEventCancelled(context.Background(), Cancelled{ID: id})
-	require.NoError(t, err)
+	worker.handleEventCancelled(context.Background(), Cancelled{ID: id})
 	// TODO: once scheduler is added we can assert expectation from a mock scheduler here.
 }
 

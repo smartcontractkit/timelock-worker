@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-// privateKey this key matches the public key in the config.toml so it gets funded by the genesis block
+// privateKey this key matches the public key in the config.toml so it gets funded by the genesis block.
 const privateKey = "DmPfeHBC8Brf8s5qQXi25bmJ996v6BHRtaLc6AH51yFGSqQpUMy1oHkbbXobPNBdgGH2F29PAmoq9ZZua4K9vCc"
 
 var _, fileName, _, _ = runtime.Caller(0)

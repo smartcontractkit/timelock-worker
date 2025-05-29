@@ -50,7 +50,7 @@ func (s *solanaIntegrationTestSuite) TestTimelockWorkerListen() {
 		assert.Greater(collect, len(logEntries), 11, "Expected more than 8 log entries, got %d", len(logEntries))
 		assert.Equal(collect, logEntries[0].Message, "timelock-worker started [solana]")
 		assert.Equal(collect, logEntries[1].Message, "\tTimelock program addresses: DoajfR5tK24xVw51fWcawUZWhAXD8yrBJVacc13neVQA")
-		assert.Equal(collect, logEntries[2].Message, "\taccount address: 9n1pyVGGo6V4mpiSDMVay5As9NurEkY283wwRk1Kto2C")
+		assert.Equal(collect, logEntries[2].Message, "\tSolana account address: 9n1pyVGGo6V4mpiSDMVay5As9NurEkY283wwRk1Kto2C")
 		assert.Equal(collect, logEntries[3].Message, "\tPoll Period: 1s")
 		assert.Equal(collect, logEntries[4].Message, "\tEvent Listener Poll Period: 1s")
 		assert.Equal(collect, logEntries[5].Message, "\tEvent Listener Poll #Logs: 10")

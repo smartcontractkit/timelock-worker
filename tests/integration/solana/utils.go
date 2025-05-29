@@ -325,5 +325,6 @@ func (s *solanaIntegrationTestSuite) scheduleTestIx(
 		assert.NoError(c, err)
 		assert.NotNil(c, txFinalized)
 	}, 30*time.Second, 500*time.Millisecond)
+
 	return ixStub, operationID
 }

@@ -141,7 +141,7 @@ func TestParseTimelockEvents_CallExecutedTx(t *testing.T) {
 	}
 	err := json.Unmarshal([]byte(executeBatchTxJSON), &rawResponse)
 	require.NoError(t, err, "should unmarshal JSON into rpc.TransactionWithMeta")
-	evs, err := ParseTimelockEvents(&rawResponse.Result)
+	evs, err := ParseTimelockEvents(testLogger, &rawResponse.Result)
 	require.NoError(t, err)
 	// Expect exactly one CallScheduled and one CallExecuted
 	require.Len(t, evs.Executed, 1, "should find one CallExecuted event")
@@ -303,7 +303,7 @@ func TestParseTimelockEvents_CallScheduledTx(t *testing.T) {
 	}
 	err := json.Unmarshal([]byte(scheduleBatchTxJSON), &rawResponse)
 	require.NoError(t, err, "should unmarshal JSON into rpc.TransactionWithMeta")
-	evs, err := ParseTimelockEvents(&rawResponse.Result)
+	evs, err := ParseTimelockEvents(testLogger, &rawResponse.Result)
 	require.NoError(t, err)
 	// Expect exactly one CallScheduled and one CallExecuted
 	require.Len(t, evs.Executed, 0, "should find one CallExecuted event")
@@ -380,7 +380,7 @@ func TestParseTimelockEvents_CancelledEvent(t *testing.T) {
 	err := json.Unmarshal([]byte(cancelTxJSON), &rawResponse)
 	require.NoError(t, err)
 
-	evs, err := ParseTimelockEvents(&rawResponse.Result)
+	evs, err := ParseTimelockEvents(testLogger, &rawResponse.Result)
 	require.NoError(t, err)
 
 	require.Len(t, evs.Cancelled, 1, "should find 1 Cancelled event")
