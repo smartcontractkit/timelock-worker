@@ -60,7 +60,7 @@ jobs:
         uses: actions/cache@v4
         id: cache-solana-programs
         with:
-          path: ./e2e/artifacts/solana
+          path: ./tests/integration/solana/artifacts
           key: "${{ runner.os }}-mcms-contracts-${{ steps.solana-programs-cache-key.outputs.key }}"
 
       - name: Build Solana programs
