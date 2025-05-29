@@ -27,8 +27,9 @@ cd "${TEMP_DIR}/${REPO_DIR}"
 git checkout "${COMMIT_HASH}"
 cd chains/solana/contracts
 for program in "${PROGRAMS[@]}"; do
-  LIB_NAME=$(echo "$program" | tr '-' '_')  # convert to snake_case
-  solana-verify build --library-name "$LIB_NAME"
+  cd "chains/solana/contracts/programs/${program}"
+  cargo build-sbf
+  cd -
 done
 
 mkdir -p "${DEST_DIR}"
