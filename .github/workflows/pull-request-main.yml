@@ -73,4 +73,5 @@ jobs:
         uses: smartcontractkit/.github/actions/ci-test-go@ci-test-go/0.3.5
         with:
           go-test-cmd: CTF_CONFIGS=./config.toml go test -short -coverprofile=coverage.out -covermode=atomic -race ./...
+          checkout-repo: false
           use-go-cache: true
