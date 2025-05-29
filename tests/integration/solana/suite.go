@@ -43,7 +43,7 @@ func (s *solanaIntegrationTestSuite) SetupSuite() {
 	in, err := framework.Load[Config](s.T())
 	s.Require().NoError(err, "Failed to load Solana configuration")
 	if in.SolanaChain.ContractsDir == "" {
-		in.SolanaChain.ContractsDir = filepath.Join(ProjectRoot, "tests/integration/solana/artifacts")
+		in.SolanaChain.ContractsDir = filepath.Join(ProjectRoot, "integration/solana/artifacts")
 	}
 	// Initialize Solana client
 	solanaBlockChainOutput, err := blockchain.NewBlockchainNetwork(in.SolanaChain)

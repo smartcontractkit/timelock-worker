@@ -24,7 +24,7 @@ if [[ ! -f "$GO_MOD_FILE" ]]; then
 fi
 
 PROGRAM_DIR="chains/solana/contracts/target/deploy"
-DEST_DIR="${PROJECT_ROOT}/e2e/artifacts/solana"
+DEST_DIR="${PROJECT_ROOT}/tests/integration/solana/artifacts"
 TEMP_DIR=$(mktemp -d)
 
 # Parse the go.mod file for the specific entry
