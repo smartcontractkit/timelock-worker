@@ -31,6 +31,8 @@ jobs:
   ci-test:
     name: Tests
     runs-on: ubuntu-latest
+    env:
+      CTF_CONFIGS: ./config.toml
     permissions:
       id-token: write
       contents: read
@@ -39,5 +41,5 @@ jobs:
       - name: Build and test
         uses: smartcontractkit/.github/actions/ci-test-go@ci-test-go/0.3.5
         with:
-          go-test-cmd: CTF_CONFIGS=./configs.toml go test -short -coverprofile=coverage.out -covermode=atomic -race ./...
+          go-test-cmd: go test -short -coverprofile=coverage.out -covermode=atomic -race ./...
           use-go-cache: true
