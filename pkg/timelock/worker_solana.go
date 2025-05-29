@@ -406,7 +406,7 @@ func (w *WorkerSolana) startLog() {
 
 	wallet := w.privateKey.PublicKey()
 
-	w.logger.Infof("\taccount address: %v", wallet)
+	w.logger.Infof("\tSolana account address: %v", wallet)
 	w.logger.Infof("\tPoll Period: %v", time.Duration(w.pollPeriod*int64(time.Second)).String())
 	w.logger.Infof("\tEvent Listener Poll Period: %v", time.Duration(w.listenerPollPeriod*int64(time.Second)).String())
 	w.logger.Infof("\tEvent Listener Poll #Logs: %v", w.pollSize)

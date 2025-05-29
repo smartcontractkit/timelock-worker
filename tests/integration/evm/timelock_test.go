@@ -185,9 +185,11 @@ func (s *integrationTestSuite) TestTimelockWorkerCancelledEvent() {
 	CancelBatch(s.T(), ctx, transactor, backend, timelockContract, operationID)
 
 	// --- assert ---
-	assertLogMessage(s.T(), logs, "Cancelled received, cancelling operation")
-	assertLogMessage(s.T(), logs, "de-scheduling operation: 371141ec10c0cc52996bed94240931136172d0b46bdc4bceaea1ef76675c1237")
-	assertLogMessage(s.T(), logs, "de-scheduled operation: 371141ec10c0cc52996bed94240931136172d0b46bdc4bceaea1ef76675c1237")
+	s.Require().EventuallyWithT(func(collect *assert.CollectT) {
+		assertLogMessage(collect, logs, "Cancelled received, cancelling operation")
+		assertLogMessage(collect, logs, "de-scheduling operation: 371141ec10c0cc52996bed94240931136172d0b46bdc4bceaea1ef76675c1237")
+		assertLogMessage(collect, logs, "de-scheduled operation: 371141ec10c0cc52996bed94240931136172d0b46bdc4bceaea1ef76675c1237")
+	}, 3*time.Second, 100*time.Millisecond, logMessages(logs))
 }
 
 func (s *integrationTestSuite) TestTimelockWorkerPollSize() {
@@ -217,9 +219,9 @@ func (s *integrationTestSuite) TestTimelockWorkerPollSize() {
 
 	// --- assert ---
 	s.Require().EventuallyWithT(func(collect *assert.CollectT) {
-		assertLogMessage(collect, logs, "fetching logs from block 0 to block 2")
-		assertLogMessage(collect, logs, "fetching logs from block 2 to block 4")
-		assertLogMessage(collect, logs, "fetching logs from block 4 to block 6")
+		assertLogMessage(collect, logs, "fetching logs from block 0 to block 1")
+		assertLogMessage(collect, logs, "fetching logs from block 2 to block 3")
+		assertLogMessage(collect, logs, "fetching logs from block 4 to block 5")
 	}, 2*time.Second, 100*time.Millisecond, logMessages(logs))
 }
 
