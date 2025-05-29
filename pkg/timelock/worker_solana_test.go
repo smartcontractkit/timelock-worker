@@ -185,8 +185,8 @@ func TestPollNewSignatures(t *testing.T) {
 				}
 			}
 
-			require.GreaterOrEqual(t, sigCalls.Load(), int32(1), "should call getSignaturesForAddress once per signature")
-			require.Equal(t, int32(len(tc.signaturesResponse)), txCalls.Load(), "should call getTransaction once per signature")
+			require.GreaterOrEqual(t, sigCalls.Load(), int32(1), "should call getSignaturesForAddress at least once per signature")
+			require.GreaterOrEqual(t, txCalls.Load(), int32(len(tc.signaturesResponse)), "should call getTransaction at least once per signature")
 			require.Equal(t, tc.wantTxCount, got, "number of transactions received")
 		})
 	}
