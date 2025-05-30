@@ -158,7 +158,7 @@ func TestPollNewSignatures(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
 
-			done, ch := w.pollNewSignatures(ctx)
+			done, ch := w.pollNewTransactions(ctx)
 			got := 0
 
 		Loop:
@@ -199,7 +199,7 @@ func TestHandleEventCancelled(t *testing.T) {
 		logger: testLogger,
 	}
 
-	worker.handleEventCancelled(context.Background(), Cancelled{ID: id})
+	worker.handleEventCancelled(context.Background(), SolanaTimelockCallCancelledEvent{ID: id})
 	// TODO: once scheduler is added we can assert expectation from a mock scheduler here.
 }
 
@@ -213,7 +213,7 @@ func TestHandleEventExecuted_Done(t *testing.T) {
 		inspector:           mockInsp,
 		logger:              testLogger,
 	}
-	event := CallExecuted{ID: id, Target: solana.PublicKey{}}
+	event := SolanaTimelockCallExecutedEvent{ID: id, Target: solana.PublicKey{}}
 	err := worker.handleEventExecuted(context.Background(), event)
 	require.NoError(t, err)
 	mockInsp.AssertExpectations(t)
@@ -231,7 +231,7 @@ func TestHandleEventScheduled_IsOp(t *testing.T) {
 		inspector:           mockInsp,
 		logger:              testLogger,
 	}
-	event := CallScheduled{ID: id, Target: solana.PublicKey{}}
+	event := SolanaTimelockCallScheduledEvent{ID: id, Target: solana.PublicKey{}}
 	err := worker.handleEventScheduled(context.Background(), event)
 	require.NoError(t, err)
 	mockInsp.AssertExpectations(t)
@@ -247,7 +247,7 @@ func TestHandleEventScheduled_OperationDone(t *testing.T) {
 		inspector:           mockInsp,
 		logger:              testLogger,
 	}
-	event := CallScheduled{ID: id, Target: solana.PublicKey{}}
+	event := SolanaTimelockCallScheduledEvent{ID: id, Target: solana.PublicKey{}}
 	err := worker.handleEventScheduled(context.Background(), event)
 	require.NoError(t, err)
 	mockInsp.AssertExpectations(t)
@@ -263,7 +263,7 @@ func TestHandleEventExecuted_NotDone(t *testing.T) {
 		inspector:           mockInsp,
 		logger:              testLogger,
 	}
-	event := CallExecuted{ID: id, Target: solana.PublicKey{}}
+	event := SolanaTimelockCallExecutedEvent{ID: id, Target: solana.PublicKey{}}
 	err := worker.handleEventExecuted(context.Background(), event)
 	require.NoError(t, err)
 	mockInsp.AssertExpectations(t)
@@ -281,7 +281,7 @@ func TestHandleEventScheduled_IsOp_Error(t *testing.T) {
 		inspector:           mockInsp,
 		logger:              testLogger,
 	}
-	event := CallScheduled{ID: id, Target: solana.PublicKey{}}
+	event := SolanaTimelockCallScheduledEvent{ID: id, Target: solana.PublicKey{}}
 	require.ErrorContains(t, worker.handleEventScheduled(context.Background(), event), "timelock.isOperation call failed")
 }
 
@@ -295,7 +295,7 @@ func TestHandleEventExecuted_Error(t *testing.T) {
 		inspector:           mockInsp,
 		logger:              testLogger,
 	}
-	event := CallExecuted{ID: id, Target: solana.PublicKey{}}
+	event := SolanaTimelockCallExecutedEvent{ID: id, Target: solana.PublicKey{}}
 	require.ErrorContains(t, worker.handleEventExecuted(context.Background(), event), "timelock.isOperationDone call failed")
 	// TODO: once scheduler is added we can assert expectation from a mock scheduler here.
 }

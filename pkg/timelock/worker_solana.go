@@ -120,7 +120,7 @@ func (w *WorkerSolana) Listen(ctx context.Context) error {
 	//schedulingDone = w.scheduler.runScheduler(ctxwc)
 
 	//// Retrieve logs asynchronously.
-	pollDone, txCh := w.pollNewSignatures(ctxwc)
+	pollDone, txCh := w.pollNewTransactions(ctxwc)
 
 	// Start processing transactions
 	procDone := w.processTransactions(ctxwc, txCh)
@@ -148,9 +148,9 @@ func (w *WorkerSolana) Listen(ctx context.Context) error {
 	return nil
 }
 
-// pollNewSignatures continuously fetches only new signatures touching your program,
-// then loads each confirmed transaction so you can parse its LogMessages.
-func (w *WorkerSolana) pollNewSignatures(
+// pollNewTransactions continuously fetches only new txs touching the program,
+// then loads each confirmed transaction so it can parse its LogMessages.
+func (w *WorkerSolana) pollNewTransactions(
 	ctx context.Context,
 ) (<-chan struct{}, <-chan *rpc.TransactionWithMeta) {
 	done := make(chan struct{})
@@ -158,16 +158,16 @@ func (w *WorkerSolana) pollNewSignatures(
 
 	go func() {
 		defer func() {
-			w.logger.Info("pollNewSignatures exiting")
+			w.logger.Info("pollNewTransactions exiting")
 			close(done)
 			close(txCh)
 		}()
 
-		w.logger.Infof(
-			"starting pollNewSignatures: program=%s pollPeriod=%ds pollSize=%d",
-			w.timelockProgramKey,
-			w.pollPeriod,
-			w.pollSize,
+		w.logger.Infow(
+			"starting pollNewTransactions",
+			"program", w.timelockProgramKey,
+			"pollPeriod", w.pollPeriod,
+			"pollSize", w.pollSize,
 		)
 
 		ticker := time.NewTicker(time.Duration(w.pollPeriod) * time.Second)
@@ -180,7 +180,7 @@ func (w *WorkerSolana) pollNewSignatures(
 				return
 
 			case <-ticker.C:
-				w.logger.Infof("new pollNewSignatures tick: %s", time.Now().Format(time.RFC3339))
+				w.logger.Infow("new pollNewTransactions", "tick", time.Now().Format(time.RFC3339))
 
 				var until solana.Signature
 				if w.lastSignature != nil {
@@ -210,7 +210,7 @@ func (w *WorkerSolana) pollNewSignatures(
 					continue
 				}
 
-				w.logger.Infof("found %d new signatures", len(sigs))
+				w.logger.Infow("found new signatures", "num signatures", len(sigs))
 
 				// Build JSON-RPC batch requests (oldest→newest)
 				requests := make(jsonrpc.RPCRequests, len(sigs))
@@ -303,7 +303,7 @@ func (w *WorkerSolana) handleTx(ctx context.Context, tx *rpc.TransactionWithMeta
 		return nil
 	}
 
-	timelockEvent, err := ParseTimelockEvents(w.logger, tx)
+	timelockEvent, err := ParseTimelockEvents(tx)
 	if err != nil {
 		return fmt.Errorf("failed to parse timelock events: %w", err)
 	}
@@ -337,16 +337,16 @@ func (w *WorkerSolana) handleTx(ctx context.Context, tx *rpc.TransactionWithMeta
 }
 
 // handleEventCancelled checks if the operation is cancelled and deletes it from the scheduler if it is.
-func (w *WorkerSolana) handleEventCancelled(_ context.Context, event Cancelled) {
+func (w *WorkerSolana) handleEventCancelled(_ context.Context, event SolanaTimelockCallCancelledEvent) {
 	w.logger.With(operationID, fmt.Sprintf("%x", event.ID)).
-		Infof("%s received, cancelling operation", eventCancelled)
+		Infow("event received, cancelling operation", "event type", eventCancelled)
 
 	// TODO: add scheduler call once scheduler is implemented
 	//w.scheduler.delFromScheduler(event.ID)
 }
 
 // handleEventExecuted checks if the operation is done and deletes it from the scheduler if it is.
-func (w *WorkerSolana) handleEventExecuted(ctx context.Context, event CallExecuted) error {
+func (w *WorkerSolana) handleEventExecuted(ctx context.Context, event SolanaTimelockCallExecutedEvent) error {
 	logger := w.logger.With(eventIndex, fmt.Sprintf("%x", event.Index)).
 		With(eventTarget, event.Target.String()).
 		With(operationID, fmt.Sprintf("%x", event.ID))
@@ -356,7 +356,7 @@ func (w *WorkerSolana) handleEventExecuted(ctx context.Context, event CallExecut
 		return fmt.Errorf("timelock.isOperationDone call failed (operation id: %x): %w", event.ID, err)
 	}
 	if isDone {
-		logger.Infof("%s received, deleting operation from scheduler", eventCallExecuted)
+		logger.Infow("event received, deleting operation from scheduler", "event type ", eventCallExecuted)
 		// TODO: add scheduler call once scheduler is implemented
 		//w.scheduler.delFromScheduler(event.ID)
 	} else {
@@ -367,7 +367,7 @@ func (w *WorkerSolana) handleEventExecuted(ctx context.Context, event CallExecut
 }
 
 // handleEventScheduled checks if the operation is already scheduled and adds it to the scheduler if it is not.
-func (w *WorkerSolana) handleEventScheduled(ctx context.Context, event CallScheduled) error {
+func (w *WorkerSolana) handleEventScheduled(ctx context.Context, event SolanaTimelockCallScheduledEvent) error {
 	logger := w.logger.With(eventIndex, fmt.Sprintf("%x", event.Index)).
 		With(eventTarget, event.Target.String()).
 		With(operationID, fmt.Sprintf("%x", event.ID))
@@ -383,7 +383,7 @@ func (w *WorkerSolana) handleEventScheduled(ctx context.Context, event CallSched
 		}
 
 		if isOp {
-			logger.Infof("%s received", eventCallScheduled)
+			logger.Infow("event received", "event type", eventCallScheduled)
 			// TODO: add scheduler call once scheduler is implemented
 			// w.scheduler.addToScheduler(cs)
 		} else {
@@ -397,12 +397,12 @@ func (w *WorkerSolana) handleEventScheduled(ctx context.Context, event CallSched
 // startLog prints the timelock-worker configuration.
 func (w *WorkerSolana) startLog() {
 	w.logger.Info("timelock-worker started [solana]")
-	w.logger.Infof("\tTimelock program addresses: %v", w.timelockProgramKey.String())
+	w.logger.Infow("\tTimelock program addresses: %v", w.timelockProgramKey.String())
 
 	wallet := w.privateKey.PublicKey()
 
-	w.logger.Infof("\tSolana account address: %v", wallet)
-	w.logger.Infof("\tPoll Period: %v", time.Duration(w.pollPeriod*int64(time.Second)).String())
-	w.logger.Infof("\tEvent Listener Poll Period: %v", time.Duration(w.listenerPollPeriod*int64(time.Second)).String())
-	w.logger.Infof("\tEvent Listener Poll #Logs: %v", w.pollSize)
+	w.logger.Infow("\tSolana account address: %v", wallet)
+	w.logger.Infow("\tPoll Period: %v", time.Duration(w.pollPeriod*int64(time.Second)).String())
+	w.logger.Infow("\tEvent Listener Poll Period: %v", time.Duration(w.listenerPollPeriod*int64(time.Second)).String())
+	w.logger.Infow("\tEvent Listener Poll #Logs: %v", w.pollSize)
 }
