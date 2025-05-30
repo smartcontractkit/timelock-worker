@@ -530,7 +530,7 @@ func (tw *WorkerEVM) handleEventScheduled(ctx context.Context, log types.Log) er
 
 		if isOp {
 			logger.Infof("%s received", eventCallScheduled)
-			tw.scheduler.addToScheduler(cs)
+			tw.scheduler.addToScheduler(NewEVMTimelockCallScheduled(cs))
 		} else {
 			logger.Warn("invalid operation")
 		}

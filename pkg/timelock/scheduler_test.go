@@ -24,7 +24,7 @@ import (
 
 func Test_newScheduler(t *testing.T) {
 	logger := zap.NewNop().Sugar()
-	execFn := func(context.Context, []*contracts.RBACTimelockCallScheduled) {}
+	execFn := func(context.Context, []TimelockCallScheduled) {}
 	tScheduler := newTestScheduler()
 
 	type args struct {
@@ -87,7 +87,7 @@ func Test_scheduler_setSchedulerBusy(t *testing.T) {
 
 func Test_scheduler_setSchedulerFree(t *testing.T) {
 	logger := zap.NewNop().Sugar()
-	execFn := func(context.Context, []*contracts.RBACTimelockCallScheduled) {}
+	execFn := func(context.Context, []TimelockCallScheduled) {}
 	tScheduler := newScheduler(10*time.Second, logger, execFn)
 
 	tScheduler.setSchedulerFree()
@@ -103,23 +103,23 @@ func Test_dumpOperationStore(t *testing.T) {
 		earliestBlock = 42
 		opKeys        = generateOpKeys(t, []string{"1", "2"})
 
-		earliest = &contracts.RBACTimelockCallScheduled{
+		earliest = NewEVMTimelockCallScheduled(&contracts.RBACTimelockCallScheduled{
 			Id: opKeys[0],
 			Raw: types.Log{
 				TxHash:      common.HexToHash("txn-1"),
 				BlockNumber: uint64(earliestBlock),
 			},
-		}
+		})
 
-		following = &contracts.RBACTimelockCallScheduled{
+		following = NewEVMTimelockCallScheduled(&contracts.RBACTimelockCallScheduled{
 			Id: opKeys[1],
 			Raw: types.Log{
 				TxHash:      common.HexToHash("txn-2"),
 				BlockNumber: uint64(earliestBlock + 1),
 			},
-		}
+		})
 
-		store = map[operationKey][]*contracts.RBACTimelockCallScheduled{
+		store = map[operationKey][]TimelockCallScheduled{
 			opKeys[0]: {earliest},
 			opKeys[1]: {following},
 		}
@@ -165,13 +165,13 @@ func Test_scheduler_concurrency(t *testing.T) {
 
 	executedOps := map[int]uint16{} // {numericOpId: executionCount}
 	executedCh := make(chan operationKey)
-	execFn := func(ctx context.Context, ops []*contracts.RBACTimelockCallScheduled) {
+	execFn := func(ctx context.Context, ops []TimelockCallScheduled) {
 		for _, op := range ops {
-			opNum := int(opIDToNum(t, op.Id))
+			opNum := int(opIDToNum(t, op.Id()))
 			executedOps[opNum] = executedOps[opNum] + 1
 			go func() {
 				time.Sleep(time.Duration(1+rand.Intn(50)) * time.Millisecond)
-				executedCh <- op.Id
+				executedCh <- op.Id()
 			}()
 		}
 	}
@@ -196,7 +196,7 @@ func Test_scheduler_concurrency(t *testing.T) {
 
 func newTestScheduler() *scheduler {
 	logger := zap.NewNop().Sugar()
-	execFn := func(context.Context, []*contracts.RBACTimelockCallScheduled) {}
+	execFn := func(context.Context, []TimelockCallScheduled) {}
 	return newScheduler(10*time.Second, logger, execFn)
 }
 
@@ -231,7 +231,7 @@ func runMockEventListener(
 	for {
 		select {
 		case <-ticker.C:
-			op := &contracts.RBACTimelockCallScheduled{Id: opID(uint16(opNum)), Index: big.NewInt(0)}
+			op := NewEVMTimelockCallScheduled(&contracts.RBACTimelockCallScheduled{Id: opID(uint16(opNum)), Index: big.NewInt(0)})
 			opNum += 1
 			testScheduler.addToScheduler(op)
 

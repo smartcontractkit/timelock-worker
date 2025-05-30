@@ -4,66 +4,68 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
+	"fmt"
+	"math/big"
 	"strings"
 
 	bin "github.com/gagliardetto/binary"
-	solana "github.com/gagliardetto/solana-go"
+	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
-	"go.uber.org/zap"
 )
 
-// eventDiscriminator computes the first 8 bytes of sha256("event:<EventName>").
-func eventDiscriminator(name string) [8]byte {
-	h := sha256.Sum256([]byte("event:" + name))
-	var disc [8]byte
-	copy(disc[:], h[:8])
-
-	return disc
+// TxTimelockEvents groups all decoded events from one transaction.
+type SolanaTimelockEvents struct {
+	Scheduled []SolanaTimelockCallScheduledEvent
+	Executed  []SolanaTimelockCallExecutedEvent
+	Cancelled []SolanaTimelockCallCancelledEvent
 }
+
+// Discriminators for each event type.
+var (
+	SolanaTimelockCallScheduledDiscriminator = solanaEventDiscriminator("CallScheduled")
+	SolanaTimelockCallExecutedDiscriminator  = solanaEventDiscriminator("CallExecuted")
+	SolanaTimelockCancelledDiscriminator     = solanaEventDiscriminator("Cancelled")
+)
 
 // --- Event structs ---
 
-// CallScheduled corresponds to #[event] CallScheduled { id, index, target, predecessor, salt, delay, data }.
-type CallScheduled struct {
-	ID          [32]byte
+// SolanaTimelockCallScheduledEvent corresponds to #[event] CallScheduled { id, index, target, predecessor, salt, delay, data }.
+type SolanaTimelockCallScheduledEvent struct {
+	ID          operationKey
 	Index       uint64
 	Target      solana.PublicKey
-	Predecessor [32]byte
+	Predecessor operationKey
 	Salt        [32]byte
 	Delay       uint64
 	Data        []byte
+	BlockNumber *big.Int `borsh_skip:"true"`
+	TxHash      string   `borsh_skip:"true"`
 }
 
-// CallExecuted corresponds to #[event] CallExecuted { id, index, target, data }.
-type CallExecuted struct {
-	ID     [32]byte
+// SolanaTimelockCallExecutedEvent corresponds to #[event] CallExecuted { id, index, target, data }.
+type SolanaTimelockCallExecutedEvent struct {
+	ID     operationKey
 	Index  uint64
 	Target solana.PublicKey
 	Data   []byte
 }
 
-// Cancelled corresponds to #[event] Cancelled { id }.
-type Cancelled struct {
-	ID [32]byte
-}
-
-// Discriminators for each event type.
-var (
-	CallScheduledDiscriminator = eventDiscriminator("CallScheduled")
-	CallExecutedDiscriminator  = eventDiscriminator("CallExecuted")
-	CancelledDiscriminator     = eventDiscriminator("Cancelled")
-)
-
-// TimelockEvents groups all decoded events from one Solana transaction.
-type TimelockEvents struct {
-	Scheduled []CallScheduled
-	Executed  []CallExecuted
-	Cancelled []Cancelled
+// SolanaTimelockCallCancelledEvent corresponds to #[event] Cancelled { id }.
+type SolanaTimelockCallCancelledEvent struct {
+	ID operationKey
 }
 
 // ParseTimelockEvents extracts and decodes Anchor events from tx.Meta.LogMessages.
-func ParseTimelockEvents(lggr *zap.SugaredLogger, tx *rpc.TransactionWithMeta) (*TimelockEvents, error) {
-	out := &TimelockEvents{}
+func ParseTimelockEvents(tx *rpc.TransactionWithMeta) (*SolanaTimelockEvents, error) {
+	solanaTx, err := tx.GetParsedTransaction()
+	if err != nil {
+		return nil, fmt.Errorf("unable to get solana transaction: %w", err)
+	}
+	if len(solanaTx.Signatures) == 0 {
+		return nil, fmt.Errorf("solana transaction does not have signatures")
+	}
+
+	out := &SolanaTimelockEvents{}
 
 	for _, log := range tx.Meta.LogMessages {
 		if !strings.HasPrefix(log, "Program data: ") {
@@ -77,39 +79,39 @@ func ParseTimelockEvents(lggr *zap.SugaredLogger, tx *rpc.TransactionWithMeta) (
 
 		disc := blob[:8]
 		payload := blob[8:]
+		borshDecoder := bin.NewBorshDecoder(payload)
 
 		switch {
-		case bytes.Equal(disc, CallScheduledDiscriminator[:]):
-			var e CallScheduled
-			dec := bin.NewBorshDecoder(payload)
-			if err := dec.Decode(&e); err == nil {
-				out.Scheduled = append(out.Scheduled, e)
-			} else {
-				lggr.Warnf("Failed to decode CallScheduled event: %v", err)
+		case bytes.Equal(disc, SolanaTimelockCallScheduledDiscriminator[:]):
+			var event SolanaTimelockCallScheduledEvent
+			if err := borshDecoder.Decode(&event); err == nil {
+				event.BlockNumber = new(big.Int).SetUint64(tx.Slot)
+				event.TxHash = solanaTx.Signatures[0].String()
+				out.Scheduled = append(out.Scheduled, event)
 			}
 
-		case bytes.Equal(disc, CallExecutedDiscriminator[:]):
-			var e CallExecuted
-			dec := bin.NewBorshDecoder(payload)
-			if err := dec.Decode(&e); err == nil {
-				out.Executed = append(out.Executed, e)
-			} else {
-				lggr.Warnf("Failed to decode CallExecuted event: %v", err)
+		case bytes.Equal(disc, SolanaTimelockCallExecutedDiscriminator[:]):
+			var event SolanaTimelockCallExecutedEvent
+			if err := borshDecoder.Decode(&event); err == nil {
+				out.Executed = append(out.Executed, event)
 			}
 
-		case bytes.Equal(disc, CancelledDiscriminator[:]):
-			var e Cancelled
-			dec := bin.NewBorshDecoder(payload)
-			if err := dec.Decode(&e); err == nil {
-				out.Cancelled = append(out.Cancelled, e)
-			} else {
-				lggr.Warnf("Failed to decode Cancelled event: %v", err)
+		case bytes.Equal(disc, SolanaTimelockCancelledDiscriminator[:]):
+			var event SolanaTimelockCallCancelledEvent
+			if err := borshDecoder.Decode(&event); err == nil {
+				out.Cancelled = append(out.Cancelled, event)
 			}
-
-		default:
-			continue
 		}
 	}
 
 	return out, nil
+}
+
+// solanaEventDiscriminator computes the first 8 bytes of sha256("event:<EventName>").
+func solanaEventDiscriminator(name string) [8]byte {
+	h := sha256.Sum256([]byte("event:" + name))
+	var disc [8]byte
+	copy(disc[:], h[:8])
+
+	return disc
 }

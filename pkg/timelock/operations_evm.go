@@ -19,36 +19,44 @@ import (
 // - The predecessor operation is finished
 // - The operation is ready to be executed
 // Otherwise the operation will throw an info log and wait for a future tick.
-func (tw *WorkerEVM) execute(ctx context.Context, op []*contracts.RBACTimelockCallScheduled) {
-	isReady, err := isReady(ctx, tw.contract, op[0].Id)
+func (tw *WorkerEVM) execute(ctx context.Context, op []TimelockCallScheduled) {
+	if len(op) == 0 {
+		tw.logger.Warn("no calls given")
+		return
+	}
+	opId := op[0].Id()
+
+	isReady, err := isReady(ctx, tw.contract, opId)
 	if err != nil {
-		tw.logger.Errorw("unable to read operation %x \"ready\" status: %s", op[0].Id, err.Error())
+		tw.logger.Errorw("unable to read operation %x \"ready\" status: %s", opId, err.Error())
 		return
 	}
 	if !isReady {
-		tw.logger.Infof("skipping operation %x: not ready", op[0].Id)
+		tw.logger.Infof("skipping operation %x: not ready", opId)
 		return
 	}
 
-	tw.logger.Debugf("execute operation %x", op[0].Id)
+	tw.logger.Debugf("execute operation %x", opId)
 
 	tx, err := tw.executeCallSchedule(ctx, &tw.executeContract.RBACTimelockTransactor, op, tw.privateKey)
 	if err != nil || tx == nil {
-		tw.logger.Errorf("execute operation %x error: %s", op[0].Id, err.Error())
+		tw.logger.Errorf("execute operation %x error: %s", opId, err.Error())
 	} else {
-		tw.logger.Infof("execute operation %x success: %s", op[0].Id, tx.Hash())
+		tw.logger.Infof("execute operation %x success: %s", opId, tx.Hash())
 
 		_, err := Retry(ctx, func(rctx context.Context) (*types.Receipt, error) {
 			return bind.WaitMined(rctx, tw.ethClient, tx)
 		})
 		if err != nil {
-			tw.logger.Errorf("execute operation %x error: %s", op[0].Id, err.Error())
+			tw.logger.Errorf("execute operation %x error: %s", opId, err.Error())
 		}
 	}
 }
 
 // executeCallScheduleOperation is the handler to execute a CallScheduled operation.
-func (tw *WorkerEVM) executeCallSchedule(ctx context.Context, c *contracts.RBACTimelockTransactor, cs []*contracts.RBACTimelockCallScheduled, privateKey *ecdsa.PrivateKey) (*types.Transaction, error) {
+func (tw *WorkerEVM) executeCallSchedule(
+	ctx context.Context, c *contracts.RBACTimelockTransactor, cs []TimelockCallScheduled, privateKey *ecdsa.PrivateKey,
+) (*types.Transaction, error) {
 	fromAddress, err := privateKeyToAddress(privateKey)
 	if err != nil {
 		return nil, err
@@ -57,10 +65,15 @@ func (tw *WorkerEVM) executeCallSchedule(ctx context.Context, c *contracts.RBACT
 	// Compute all the different calls from each specific CallSchedule.
 	calls := make([]contracts.RBACTimelockCall, 0, len(cs))
 	for _, op := range cs {
+		evmOp, ok := op.(*evmTimelockCallScheduled)
+		if !ok {
+			return nil, fmt.Errorf("invalid operation type: %T (expected *evm.RBACTimelockCallScheduled)", op)
+		}
+
 		calls = append(calls, contracts.RBACTimelockCall{
-			Target: op.Target,
-			Value:  op.Value,
-			Data:   op.Data,
+			Target: evmOp.callScheduled.Target,
+			Value:  evmOp.callScheduled.Value,
+			Data:   evmOp.callScheduled.Data,
 		})
 	}
 
@@ -85,9 +98,12 @@ func (tw *WorkerEVM) executeCallSchedule(ctx context.Context, c *contracts.RBACT
 	tw.logger.Infof("Calling execute Batch...")
 	// Execute the tx's with all the computed calls.
 	// Predecessor and salt are the same for all the tx's.
+	predecessor := cs[0].(*evmTimelockCallScheduled).callScheduled.Predecessor
+	salt := cs[0].(*evmTimelockCallScheduled).callScheduled.Salt
+
 	return Retry(ctx, func(rctx context.Context) (*types.Transaction, error) {
 		txOpts.Context = rctx
-		return c.ExecuteBatch(txOpts, calls, cs[0].Predecessor, cs[0].Salt)
+		return c.ExecuteBatch(txOpts, calls, predecessor, salt)
 	})
 }
 

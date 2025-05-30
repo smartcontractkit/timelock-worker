@@ -5,26 +5,37 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math/big"
 	"os"
 	"slices"
-	"sort"
 	"sync"
 	"time"
 
-	contracts "github.com/smartcontractkit/ccip-owner-contracts/gethwrappers"
+	eth "github.com/ethereum/go-ethereum/common"
 	"go.uber.org/zap"
 )
 
 type operationKey [32]byte
 
+func operationKeyFromHex(hex string) operationKey {
+	return operationKey(eth.HexToHash(hex))
+}
+
+type TimelockCallScheduled interface {
+	Id() operationKey
+	Index() int
+	BlockNumber() *big.Int
+	TxHash() string
+}
+
 type Scheduler interface {
 	runScheduler(ctx context.Context) <-chan struct{}
-	addToScheduler(op *contracts.RBACTimelockCallScheduled)
+	addToScheduler(op TimelockCallScheduled)
 	delFromScheduler(op operationKey)
 	dumpOperationStore(now func() time.Time)
 }
 
-type executeFn func(context.Context, []*contracts.RBACTimelockCallScheduled)
+type executeFn func(context.Context, []TimelockCallScheduled)
 
 // Scheduler represents a scheduler with an in memory store.
 // Whenever accesing the map the mutex should be Locked, to prevent
@@ -32,9 +43,9 @@ type executeFn func(context.Context, []*contracts.RBACTimelockCallScheduled)
 type scheduler struct {
 	mu        sync.Mutex
 	ticker    *time.Ticker
-	add       chan *contracts.RBACTimelockCallScheduled
+	add       chan TimelockCallScheduled
 	del       chan operationKey
-	store     map[operationKey][]*contracts.RBACTimelockCallScheduled
+	store     map[operationKey][]TimelockCallScheduled
 	busy      bool
 	logger    *zap.SugaredLogger
 	executeFn executeFn
@@ -44,9 +55,9 @@ type scheduler struct {
 func newScheduler(tick time.Duration, logger *zap.SugaredLogger, executeFn executeFn) *scheduler {
 	s := &scheduler{
 		ticker:    time.NewTicker(tick),
-		add:       make(chan *contracts.RBACTimelockCallScheduled),
+		add:       make(chan TimelockCallScheduled),
 		del:       make(chan operationKey),
-		store:     make(map[operationKey][]*contracts.RBACTimelockCallScheduled),
+		store:     make(map[operationKey][]TimelockCallScheduled),
 		busy:      false,
 		logger:    logger,
 		executeFn: executeFn,
@@ -88,12 +99,12 @@ func (tw *scheduler) runScheduler(ctx context.Context) <-chan struct{} {
 
 			case op := <-tw.add:
 				tw.mu.Lock()
-				for len(tw.store[op.Id]) <= int(op.Index.Int64()) {
-					tw.store[op.Id] = append(tw.store[op.Id], op)
+				for len(tw.store[op.Id()]) <= op.Index() {
+					tw.store[op.Id()] = append(tw.store[op.Id()], op)
 				}
-				tw.store[op.Id][op.Index.Int64()] = op
+				tw.store[op.Id()][op.Index()] = op
 				tw.mu.Unlock()
-				tw.logger.Debugf("scheduled operation: %x", op.Id)
+				tw.logger.Debugf("scheduled operation: %x", op.Id())
 
 			case op := <-tw.del:
 				if _, ok := tw.store[op]; ok {
@@ -125,8 +136,8 @@ func (tw *scheduler) updateSchedulerDelay(t time.Duration) {
 }
 
 // addToScheduler adds a new CallSchedule operation safely to the store.
-func (tw *scheduler) addToScheduler(op *contracts.RBACTimelockCallScheduled) {
-	tw.logger.Debugf("scheduling operation: %x", op.Id)
+func (tw *scheduler) addToScheduler(op TimelockCallScheduled) {
+	tw.logger.Debugf("scheduling operation: %x", op.Id())
 	tw.add <- op
 }
 
@@ -171,11 +182,11 @@ func (tw *scheduler) dumpOperationStore(now func() time.Time) {
 	tw.logger.Infof("generating logs with pending operations in %s", logPath+logFile)
 
 	// Get the earliest block from all the operations stored by sorting them.
-	blocks := make([]uint64, 0)
+	blocks := make([]*big.Int, 0)
 	for _, op := range tw.store {
-		blocks = append(blocks, op[0].Raw.BlockNumber)
+		blocks = append(blocks, op[0].BlockNumber())
 	}
-	slices.Sort(blocks)
+	slices.SortFunc(blocks, func(a, b *big.Int) int { return a.Cmp(b) })
 
 	w := bufio.NewWriter(f)
 
@@ -185,22 +196,22 @@ func (tw *scheduler) dumpOperationStore(now func() time.Time) {
 }
 
 type storeRecord struct {
-	Block uint64
+	Block *big.Int
 	OpKey operationKey
-	Ops   []*contracts.RBACTimelockCallScheduled
+	Ops   []TimelockCallScheduled
 }
 
 // writeOperationStore writes the operations to the writer.
 func writeOperationStore(
 	w io.Writer,
 	logger *zap.SugaredLogger,
-	store map[operationKey][]*contracts.RBACTimelockCallScheduled,
-	earliest uint64,
+	store map[operationKey][]TimelockCallScheduled,
+	earliest *big.Int,
 	now func() time.Time,
 ) {
 	var (
 		err error
-		op  *contracts.RBACTimelockCallScheduled
+		op  TimelockCallScheduled
 		msg string
 	)
 
@@ -216,28 +227,24 @@ func writeOperationStore(
 			continue
 		}
 		storeRecords = append(storeRecords, storeRecord{
-			Block: ops[0].Raw.BlockNumber,
+			Block: ops[0].BlockNumber(),
 			OpKey: opID,
 			Ops:   ops,
 		})
 	}
-	sort.Slice(storeRecords, func(i, j int) bool {
-		return storeRecords[i].Block < storeRecords[j].Block
-	})
+	slices.SortFunc(storeRecords, func(a, b storeRecord) int { return a.Block.Cmp(b.Block) })
 
 	for _, record := range storeRecords {
 		op = record.Ops[0]
 
-		if op.Raw.BlockNumber == earliest {
+		if op.BlockNumber().Cmp(earliest) == 0 {
 			logLine := fmt.Sprintf("earliest unexecuted CallSchedule. Use this block number when "+
 				"spinning up the service again, with the environment variable or in timelock.env as FROM_BLOCK=%v, "+
-				"or using the flag --from-block=%v", op.Raw.BlockNumber, op.Raw.BlockNumber)
-			logger.With(fieldTXHash, fmt.Sprintf("%x", op.Raw.TxHash[:])).
-				With(fieldBlockNumber, op.Raw.BlockNumber).Info(logLine)
+				"or using the flag --from-block=%v", op.BlockNumber(), op.BlockNumber())
+			logger.With(fieldTXHash, op.TxHash()).With(fieldBlockNumber, op.BlockNumber()).Info(logLine)
 			msg = toEarliestRecord(op)
 		} else {
-			logger.With(fieldTXHash, fmt.Sprintf("%x", op.Raw.TxHash[:])).
-				With(fieldBlockNumber, op.Raw.BlockNumber).Info("CallSchedule pending")
+			logger.With(fieldTXHash, op.TxHash()).With(fieldBlockNumber, op.BlockNumber()).Info("CallSchedule pending")
 			msg = toSubsequentRecord(op)
 		}
 
@@ -249,17 +256,17 @@ func writeOperationStore(
 }
 
 // toEarliestRecord returns a string with the earliest record.
-func toEarliestRecord(op *contracts.RBACTimelockCallScheduled) string {
+func toEarliestRecord(op TimelockCallScheduled) string {
 	tmpl := "Earliest CallSchedule pending ID: %x\tBlock Number: %v\n" +
 		"\tUse this block number to ensure all pending operations are properly executed.  " +
 		"\tSet it as environment variable or in timelock.env with FROM_BLOCK=%v, or as a flag with --from-block=%v\n"
 
-	return fmt.Sprintf(tmpl, op.Id, op.Raw.BlockNumber, op.Raw.BlockNumber, op.Raw.BlockNumber)
+	return fmt.Sprintf(tmpl, op.Id(), op.BlockNumber(), op.BlockNumber(), op.BlockNumber())
 }
 
 // toSubsequentRecord returns a string for use with each subsequent record sent to a writer.
-func toSubsequentRecord(op *contracts.RBACTimelockCallScheduled) string {
-	return fmt.Sprintf("CallSchedule pending ID: %x\tBlock Number: %v\n", op.Id, op.Raw.BlockNumber)
+func toSubsequentRecord(op TimelockCallScheduled) string {
+	return fmt.Sprintf("CallSchedule pending ID: %x\tBlock Number: %v\n", op.Id(), op.BlockNumber())
 }
 
 // ----- nop scheduler -----
@@ -284,7 +291,7 @@ func (s *nopScheduler) runScheduler(ctx context.Context) <-chan struct{} {
 	return ch
 }
 
-func (s *nopScheduler) addToScheduler(op *contracts.RBACTimelockCallScheduled) {
+func (s *nopScheduler) addToScheduler(op TimelockCallScheduled) {
 	s.logger.With("op", op).Info("nop.addToScheduler")
 }
 
