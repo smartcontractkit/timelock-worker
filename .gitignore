@@ -32,4 +32,4 @@ testdata/
 .vscode/
 
 
-/tests/integration/solana/artifacts/
+tests/integration/solana/artifacts/
