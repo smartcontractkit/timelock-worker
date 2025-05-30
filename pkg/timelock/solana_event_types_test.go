@@ -5,100 +5,147 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
+	"github.com/mr-tron/base58"
 	"github.com/stretchr/testify/require"
 )
 
+func makeTxWithMeta(t *testing.T, fullJSON string) *rpc.TransactionWithMeta {
+	t.Helper()
+
+	var parsed struct {
+		Result struct {
+			Slot        uint64               `json:"slot"`
+			Meta        *rpc.TransactionMeta `json:"meta"`
+			Transaction struct {
+				Signatures []string       `json:"signatures"`
+				Message    solana.Message `json:"message"`
+			} `json:"transaction"`
+		} `json:"result"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(fullJSON), &parsed))
+
+	// Rebuild transaction
+	tx := &solana.Transaction{
+		Message:    parsed.Result.Transaction.Message,
+		Signatures: make([]solana.Signature, len(parsed.Result.Transaction.Signatures)),
+	}
+	for i, sigStr := range parsed.Result.Transaction.Signatures {
+		sig, err := solana.SignatureFromBase58(sigStr)
+		require.NoError(t, err)
+		tx.Signatures[i] = sig
+	}
+
+	binTx, err := tx.MarshalBinary()
+	require.NoError(t, err)
+
+	// Encode to base58
+	b58 := base58.Encode(binTx)
+
+	// Marshal as JSON string (e.g., `"base58value"`)
+	jsonBz, err := json.Marshal(b58)
+	require.NoError(t, err)
+
+	// Unmarshal into DataBytesOrJSON
+	var txField rpc.DataBytesOrJSON
+	require.NoError(t, json.Unmarshal(jsonBz, &txField))
+
+	return &rpc.TransactionWithMeta{
+		Slot:        parsed.Result.Slot,
+		Meta:        parsed.Result.Meta,
+		Transaction: &txField,
+	}
+}
+
 func TestParseTimelockEvents_CallExecuted(t *testing.T) {
 	const executeBatchTxJSON = `{
-		"id": 1,
-		"jsonrpc": "2.0",
-		"result": {
-			"blockTime": 1748021125,
-			"meta": {
-				"computeUnitsConsumed": 27191,
-				"err": null,
-				"fee": 5000,
-				"innerInstructions": [
-					{
-						"index": 0,
-						"instructions": [
-							{
-								"accounts": [ 2, 5 ],
-								"data": "VnVctNXAKG1",
-								"programIdIndex": 7,
-								"stackHeight": 2
-							}
-						]
-					}
-				],
-				"loadedAddresses": { "readonly": [], "writable": [] },
-				"logMessages": [
-					"Program DoajfR5tK24xVw51fWcawUZWhAXD8yrBJVacc13neVQA invoke [1]",
-					"Program log: Instruction: ExecuteBatch",
-					"Program offqSMQWgQud6WJz694LRzkeN5kMYpCHTpXQr3Rkcjm invoke [2]",
-					"Program log: Instruction: AcceptOwnership",
-					"Program data: rD3Nt/oyJmJlE+rTgDo96ayxRLzURrZ0VXRhHG1wd0AEDOX6PDYh3R74fnS+SLFE6OvgAxbo+S+KqA2nm/gNrv6H0f98BW1Y",
-					"Program offqSMQWgQud6WJz694LRzkeN5kMYpCHTpXQr3Rkcjm consumed 3872 of 1379263 compute units",
-					"Program offqSMQWgQud6WJz694LRzkeN5kMYpCHTpXQr3Rkcjm success",
-					"Program data: 7Xjujr0lQYCbMz3bJrZjB2awZbsPIBEDQgI0hHOTP3L79epG611RUgAAAAAAAAAAC/Rw6A3Ml4d6nU2Njm4F9OFrhELkYDVH0V5R8rVYXtQIAAAArBcrDe7VVZY=",
-					"Program DoajfR5tK24xVw51fWcawUZWhAXD8yrBJVacc13neVQA consumed 27041 of 1400000 compute units",
-					"Program DoajfR5tK24xVw51fWcawUZWhAXD8yrBJVacc13neVQA success",
-					"Program ComputeBudget111111111111111111111111111111 invoke [1]",
-					"Program ComputeBudget111111111111111111111111111111 success"
-				],
-				"postBalances": [ 22587136898, 2540400, 13752960, 2540400, 9744000, 10000000000, 15701760, 1141440, 1141440, 1 ],
-				"postTokenBalances": [],
-				"preBalances": [ 22587141898, 2540400, 13752960, 2540400, 9744000, 10000000000, 15701760, 1141440, 1141440, 1 ],
-				"preTokenBalances": [],
-				"rewards": [],
-				"status": { "Ok": null }
-			},
-			"slot": 382828012,
-			"transaction": {
-				"message": {
-					"accountKeys": [
-						"7oZnxiocDK1aa9XAQC3CZ1VHKFkKwLuwRK8NddhU3FT2",
-						"2KVM8NpDNHpUDxPDW97YdAQZRENVCL4gDuyMvWtqUbj4",
-						"G88p8xbxwG6D5ZRbx7S31sdPPYR2UnRs1PhhE5iAL1ny",
-						"DDT28LawDCqFwPqjp8t35UzheUVWk24qZJN6gFHKwsnf",
-						"DJnQbX4PrA4854CpsA5hDkizx1drAccQbHE8jZrgRhAk",
-						"35u11sTYbcen34onkPHVEaekkJ4ua4k1SqkXV2x7bEPy",
-						"HpYr8NAom2tEpdp5mP1pi5RYX6bfd5Mk3emH2CgmzG6D",
-						"offqSMQWgQud6WJz694LRzkeN5kMYpCHTpXQr3Rkcjm",
-						"DoajfR5tK24xVw51fWcawUZWhAXD8yrBJVacc13neVQA",
-						"ComputeBudget111111111111111111111111111111"
-					],
-					"header": {
-						"numReadonlySignedAccounts": 0,
-						"numReadonlyUnsignedAccounts": 7,
-						"numRequiredSignatures": 1
-					},
-					"instructions": [
-						{
-							"accounts": [ 1, 3, 4, 5, 6, 0, 7, 2, 5 ],
-							"data": "2fRCKgyB2eYrGZR5XdcvfK3ckk36FUPhL2WTTBmCCsWdTX22WuTj4HA7x6djCELSmy1mCwXZGmneFqntv34DvHL5LuoBQASjphf",
-							"programIdIndex": 8,
-							"stackHeight": null
-						},
-						{
-							"accounts": [],
-							"data": "K1FDJ7",
-							"programIdIndex": 9,
-							"stackHeight": null
-						}
-					],
-					"recentBlockhash": "JDSXdiPBLNM7eB4tq9fmAi5PjdvhmskTUwAYbZp3PkKC"
-				},
-				"signatures": [ "4dD688oj9n788AXYHnUWzKeEyZ3fV32DRrPozTQ4tXrNYVYDqxxhhPQK8axxt6gCD7TF5sFmkeKbHnFYc5kkZ9DU" ]
-			},
-			"version": "legacy"
-		}
-	}`
+  "jsonrpc": "2.0",
+  "result": {
+    "blockTime": 1748021125,
+    "meta": {
+      "computeUnitsConsumed": 27191,
+      "err": null,
+      "fee": 5000,
+      "innerInstructions": [
+        {
+          "index": 0,
+          "instructions": [
+            {
+              "accounts": [
+                2,
+                5
+              ],
+              "data": "VnVctNXAKG1",
+              "programIdIndex": 7,
+              "stackHeight": 2
+            }
+          ]
+        }
+      ],
+      "loadedAddresses": {
+        "readonly": [],
+        "writable": []
+      },
+      "logMessages": [
+        "Program DoajfR5tK24xVw51fWcawUZWhAXD8yrBJVacc13neVQA invoke [1]",
+        "Program log: Instruction: ExecuteBatch",
+        "Program offqSMQWgQud6WJz694LRzkeN5kMYpCHTpXQr3Rkcjm invoke [2]",
+        "Program log: Instruction: AcceptOwnership",
+        "Program data: rD3Nt/oyJmJlE+rTgDo96ayxRLzURrZ0VXRhHG1wd0AEDOX6PDYh3R74fnS+SLFE6OvgAxbo+S+KqA2nm/gNrv6H0f98BW1Y",
+        "Program offqSMQWgQud6WJz694LRzkeN5kMYpCHTpXQr3Rkcjm consumed 3872 of 1379263 compute units",
+        "Program offqSMQWgQud6WJz694LRzkeN5kMYpCHTpXQr3Rkcjm success",
+        "Program data: 7Xjujr0lQYCbMz3bJrZjB2awZbsPIBEDQgI0hHOTP3L79epG611RUgAAAAAAAAAAC/Rw6A3Ml4d6nU2Njm4F9OFrhELkYDVH0V5R8rVYXtQIAAAArBcrDe7VVZY=",
+        "Program DoajfR5tK24xVw51fWcawUZWhAXD8yrBJVacc13neVQA consumed 27041 of 1400000 compute units",
+        "Program DoajfR5tK24xVw51fWcawUZWhAXD8yrBJVacc13neVQA success",
+        "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+        "Program ComputeBudget111111111111111111111111111111 success"
+      ],
+      "postBalances": [
+        22587136898,
+        2540400,
+        13752960,
+        2540400,
+        9744000,
+        10000000000,
+        15701760,
+        1141440,
+        1141440,
+        1
+      ],
+      "postTokenBalances": [],
+      "preBalances": [
+        22587141898,
+        2540400,
+        13752960,
+        2540400,
+        9744000,
+        10000000000,
+        15701760,
+        1141440,
+        1141440,
+        1
+      ],
+      "preTokenBalances": [],
+      "rewards": [],
+      "status": {
+        "Ok": null
+      }
+    },
+    "slot": 382828012,
+    "transaction": [
+      "KCUrq6ztDiyKw9y7sWgbPKouCvFx6Zd1XGGcNwWUFNWPPHNu1wt29JEa96qzedvqnaEgKj3LRtnhHH8Y8Nq6MzDUmwhVPmSkpATPpuZZua1RfAh6Gba3ReBcQ5rKrMJFsxMJ1kmx87For3uWsT6WFnViAUCM4oLagQvZubzAQnVxcec7JVJjowAp2sGe6QLJzKpxCZZ29EV8SDTRHh7AwnZVMmLsBFNKNnfmtSDskqbvqCHa2azFsQYqHmhGj5VdaJZUKZiTXzbn1LnB97KPsbMzjRBumuyVAKgx3EUQkpCVkDgiqm3pcHpdeU4Lp9M3R9F6rh9fkhLTuDpX8vsSEtvg1gyp4oVkFFKvpd7m1KLVbvPCg54XY4eLNjb7AD1Him6dosLBUqFz35yDjHqcpmMaaYBS28ycUqBg8mCM3zaXPRTM2nfr8dv9k9EfV2yqLSTybYnYroSw6mLwpDUQB4bmDrqXXMAhCwD6niAYPgpcxRTMx7k3eZAVXXtG6QBzEATKER8TWnJuGkMBzEt8fEnmzx9PDQX6T19QSueiGoaJvoi64ubifeyFj19Lh6wD9jk1CKmjnhGjwgVyGv7FcUPrMpuHWYeCeaZwMgb3BEwJ2XYPfejKwXeohaReHg1agRePsWNSpGFhf9gs4xhRrGgeSegaY47wJ7dbub9LBWnFdCSbUS3zPFv1EQucT",
+      "base58"
+    ],
+    "version": "legacy"
+  },
+  "id": 1
+}`
 
-	rawResponse := struct { Result rpc.TransactionWithMeta `json:"result"` }{}
+	var rawResponse struct {
+		Result rpc.TransactionWithMeta `json:"result"`
+	}
 	err := json.Unmarshal([]byte(executeBatchTxJSON), &rawResponse)
-	require.NoError(t, err)
 
 	// --- act ---
 	events, err := ParseTimelockEvents(&rawResponse.Result)
@@ -118,101 +165,100 @@ func TestParseTimelockEvents_CallExecuted(t *testing.T) {
 
 func TestParseTimelockEvents_CallScheduledTx(t *testing.T) {
 	const scheduleBatchTxJSON = `{
-		"id": 1,
-		"jsonrpc": "2.0",
-		"result": {
-			"blockTime": 1748436483,
-			"meta": {
-				"computeUnitsConsumed": 64703,
-				"err": null,
-				"fee": 5000,
-				"innerInstructions": [
-					{
-						"index": 0,
-						"instructions": [
-							{
-								"accounts": [ 3, 7, 8, 4 ],
-								"data": "3eJCB4YtuS2me8jfjvQLeGjPBszgEL1WoYhvifHfLVTcKd85pZKEqjhZfZPF838bCTG6weKvDikU3kxpZQ516gyPVdGZJLNWs3LXT5Q31R9iLo",
-								"programIdIndex": 6,
-								"stackHeight": 2
-							}
-						]
-					}
-				],
-				"loadedAddresses": {
-					"readonly": [],
-					"writable": []
-				},
-				"logMessages": [
-					"Program 5vNJx78mz7KVMjhuipyr9jKBKcMrKYGdjGkgE4LUmjKk invoke [1]",
-					"Program log: Instruction: Execute",
-					"Program DoajfR5tK24xVw51fWcawUZWhAXD8yrBJVacc13neVQA invoke [2]",
-					"Program log: Instruction: ScheduleBatch",
-					"Program data: v1Vap4TfuDnIXpa3xd/TcOPVES/wWdVelcwplTNt8T83mTbUEzWKeAAAAAAAAAAArJcpd+G6tf/2xoYpH5lP9S80q+0bx9+I929D+SZZLI8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGg5/GkAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAALAEAAAAAAAAoAAAA2iWLa47kM9se+H50vkixROjr4AMW6PkviqgNp5v4Da7+h9H/fAVtWA==",
-					"Program data: v1Vap4TfuDnIXpa3xd/TcOPVES/wWdVelcwplTNt8T83mTbUEzWKeAEAAAAAAAAArJcpd+G6tf/2xoYpH5lP9S80q+0bx9+I929D+SZZLI8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGg5/GkAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAALAEAAAAAAAAoAAAA2iWLa47kM9se+H50vkixROjr4AMW6PkviqgNp5v4Da7+h9H/fAVtWA==",
-					"Program data: v1Vap4TfuDnIXpa3xd/TcOPVES/wWdVelcwplTNt8T83mTbUEzWKeAIAAAAAAAAArJcpd+G6tf/2xoYpH5lP9S80q+0bx9+I929D+SZZLI8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGg5/GkAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAALAEAAAAAAAAIAAAAavAQrYnVo/Y=",
-					"Program data: v1Vap4TfuDnIXpa3xd/TcOPVES/wWdVelcwplTNt8T83mTbUEzWKeAMAAAAAAAAArJcpd+G6tf/2xoYpH5lP9S80q+0bx9+I929D+SZZLI8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGg5/GkAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAALAEAAAAAAAAIAAAAavAQrYnVo/Y=",
-					"Program data: v1Vap4TfuDnIXpa3xd/TcOPVES/wWdVelcwplTNt8T83mTbUEzWKeAQAAAAAAAAArJcpd+G6tf/2xoYpH5lP9S80q+0bx9+I929D+SZZLI8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGg5/GkAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAALAEAAAAAAAAPAAAAdx4OtHPhp+4DAAAAAwQH",
-					"Program data: v1Vap4TfuDnIXpa3xd/TcOPVES/wWdVelcwplTNt8T83mTbUEzWKeAUAAAAAAAAArJcpd+G6tf/2xoYpH5lP9S80q+0bx9+I929D+SZZLI8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGg5/GkAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAALAEAAAAAAAAPAAAAdx4OtHPhp+4DAAAAAwQH",
-					"Program DoajfR5tK24xVw51fWcawUZWhAXD8yrBJVacc13neVQA consumed 25428 of 1367858 compute units",
-					"Program DoajfR5tK24xVw51fWcawUZWhAXD8yrBJVacc13neVQA success",
-					"Program data: 3Q/UHSP8/05UAAAAAAAAAL47GvGrhOB/P+m1o/57yJMpAL8r+oYfe0/EYkBx0NiHUAAAAPKMV2pH4lYgRTRSNk53ZzFLOFp2aTZNY0xka2FHREQ1Q2xYMUtreVbIXpa3xd/TcOPVES/wWdVelcwplTNt8T83mTbUEzWKeCwBAAAAAAAA",
-					"Program 5vNJx78mz7KVMjhuipyr9jKBKcMrKYGdjGkgE4LUmjKk consumed 64553 of 1400000 compute units",
-					"Program 5vNJx78mz7KVMjhuipyr9jKBKcMrKYGdjGkgE4LUmjKk success",
-					"Program ComputeBudget111111111111111111111111111111 invoke [1]",
-					"Program ComputeBudget111111111111111111111111111111 success"
-				],
-				"postBalances": [ 14964655256, 6737280, 1252800, 11379600, 9951781120, 1343280, 1141440, 9744000, 15701760, 1141440, 1 ],
-				"postTokenBalances": [],
-				"preBalances": [ 14964660256, 6737280, 1252800, 11379600, 9951781120, 1343280, 1141440, 9744000, 15701760, 1141440, 1 ],
-				"preTokenBalances": [],
-				"rewards": [],
-				"status": { "Ok": null }
-			},
-			"slot": 383874824,
-			"transaction": {
-				"message": {
-					"accountKeys": [
-						"7oZnxiocDK1aa9XAQC3CZ1VHKFkKwLuwRK8NddhU3FT2",
-						"HznXSrT5dkweA5Ap86kYCabkU9S2Hf2Q5Qvno6Wkq9PH",
-						"9nLpt2VKZBBHnj37tL4rfH8oAw4XygZRM9mAVMkHVVWN",
-						"ZMyBiNGpJYK6BP5ubRSDJD7SimPQULp9zbgA27E968S",
-						"9K5QmiFUayo3Hsmjt47VgJ8HeWuVgrUToAk9Huw5XmLk",
-						"GMqkrQkqVFuk8xzwNLnSibWZQwpq7LvUEt5f1RdR3P68",
-						"DoajfR5tK24xVw51fWcawUZWhAXD8yrBJVacc13neVQA",
-						"DJnQbX4PrA4854CpsA5hDkizx1drAccQbHE8jZrgRhAk",
-						"FTDusxFg9NmmFGRg5jfA9nHCiCpZ7dJktawfRBcUBhq",
-						"5vNJx78mz7KVMjhuipyr9jKBKcMrKYGdjGkgE4LUmjKk",
-						"ComputeBudget111111111111111111111111111111"
-					],
-					"header": {
-						"numReadonlySignedAccounts": 0,
-						"numReadonlyUnsignedAccounts": 6,
-						"numRequiredSignatures": 1
-					},
-					"instructions": [
-						{
-							"accounts": [ 1, 5, 2, 6, 4, 0, 3, 7, 8, 4 ],
-							"data": "4JCzHhKSdCxjsntSMTMfneF3BKDQP1nVUTfuihwp5M4NtzjdSkWEGqF8muY9A9W2u5P9a36oNpb4rMhwLQCvpHw4kB8hfm9Sc1Zx5nwsPNJjvv6HLBGXvU8Dbi8UaSoSzBSFDrYcrGy1eqXcZJg8dFEh9hpnQw5tjZN884SD9D4M8S6ixMneF8F78FF7dFQPizAVWxzXf5Y3ydwwKvM5zjhnngmQu65sJwqbAekWKjhfZd1MdK2pNiu6tXNrVbHFYG6ML6fncDzBs1XoWsJgKwHreoWkaK6PgU5DcwSVQWgEuvf4VTKrYyW9zYbQ9PjWXNaUeuLLuw7MiVpURJS885DuHJCdUiSx8GbbV6zmRMm5DjSAB9Eh",
-							"programIdIndex": 9,
-							"stackHeight": null
-						},
-						{
-							"accounts": [],
-							"data": "K1FDJ7",
-							"programIdIndex": 10,
-							"stackHeight": null
-						}
-					],
-					"recentBlockhash": "G8ieKkfmP1HpXNmp2UktdjzTtbBpqCenFPYkmLQZFDoy"
-				},
-				"signatures": [ "2G3nDopUPP1b4B8woZWVNME2Qo3i9eyAB7n1B2QLHHgM8gPb1dTK3iLkCqFyktgK9Jm4mU3Ny9aBahrcHUSzyTjg" ]
-			},
-			"version": "legacy"
-		}
-	}`
+  "jsonrpc": "2.0",
+  "result": {
+    "blockTime": 1748436483,
+    "meta": {
+      "computeUnitsConsumed": 64703,
+      "err": null,
+      "fee": 5000,
+      "innerInstructions": [
+        {
+          "index": 0,
+          "instructions": [
+            {
+              "accounts": [
+                3,
+                7,
+                8,
+                4
+              ],
+              "data": "3eJCB4YtuS2me8jfjvQLeGjPBszgEL1WoYhvifHfLVTcKd85pZKEqjhZfZPF838bCTG6weKvDikU3kxpZQ516gyPVdGZJLNWs3LXT5Q31R9iLo",
+              "programIdIndex": 6,
+              "stackHeight": 2
+            }
+          ]
+        }
+      ],
+      "loadedAddresses": {
+        "readonly": [],
+        "writable": []
+      },
+      "logMessages": [
+        "Program 5vNJx78mz7KVMjhuipyr9jKBKcMrKYGdjGkgE4LUmjKk invoke [1]",
+        "Program log: Instruction: Execute",
+        "Program DoajfR5tK24xVw51fWcawUZWhAXD8yrBJVacc13neVQA invoke [2]",
+        "Program log: Instruction: ScheduleBatch",
+        "Program data: v1Vap4TfuDnIXpa3xd/TcOPVES/wWdVelcwplTNt8T83mTbUEzWKeAAAAAAAAAAArJcpd+G6tf/2xoYpH5lP9S80q+0bx9+I929D+SZZLI8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGg5/GkAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAALAEAAAAAAAAoAAAA2iWLa47kM9se+H50vkixROjr4AMW6PkviqgNp5v4Da7+h9H/fAVtWA==",
+        "Program data: v1Vap4TfuDnIXpa3xd/TcOPVES/wWdVelcwplTNt8T83mTbUEzWKeAEAAAAAAAAArJcpd+G6tf/2xoYpH5lP9S80q+0bx9+I929D+SZZLI8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGg5/GkAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAALAEAAAAAAAAoAAAA2iWLa47kM9se+H50vkixROjr4AMW6PkviqgNp5v4Da7+h9H/fAVtWA==",
+        "Program data: v1Vap4TfuDnIXpa3xd/TcOPVES/wWdVelcwplTNt8T83mTbUEzWKeAIAAAAAAAAArJcpd+G6tf/2xoYpH5lP9S80q+0bx9+I929D+SZZLI8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGg5/GkAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAALAEAAAAAAAAIAAAAavAQrYnVo/Y=",
+        "Program data: v1Vap4TfuDnIXpa3xd/TcOPVES/wWdVelcwplTNt8T83mTbUEzWKeAMAAAAAAAAArJcpd+G6tf/2xoYpH5lP9S80q+0bx9+I929D+SZZLI8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGg5/GkAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAALAEAAAAAAAAIAAAAavAQrYnVo/Y=",
+        "Program data: v1Vap4TfuDnIXpa3xd/TcOPVES/wWdVelcwplTNt8T83mTbUEzWKeAQAAAAAAAAArJcpd+G6tf/2xoYpH5lP9S80q+0bx9+I929D+SZZLI8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGg5/GkAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAALAEAAAAAAAAPAAAAdx4OtHPhp+4DAAAAAwQH",
+        "Program data: v1Vap4TfuDnIXpa3xd/TcOPVES/wWdVelcwplTNt8T83mTbUEzWKeAUAAAAAAAAArJcpd+G6tf/2xoYpH5lP9S80q+0bx9+I929D+SZZLI8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGg5/GkAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAALAEAAAAAAAAPAAAAdx4OtHPhp+4DAAAAAwQH",
+        "Program DoajfR5tK24xVw51fWcawUZWhAXD8yrBJVacc13neVQA consumed 25428 of 1367858 compute units",
+        "Program DoajfR5tK24xVw51fWcawUZWhAXD8yrBJVacc13neVQA success",
+        "Program data: 3Q/UHSP8/05UAAAAAAAAAL47GvGrhOB/P+m1o/57yJMpAL8r+oYfe0/EYkBx0NiHUAAAAPKMV2pH4lYgRTRSNk53ZzFLOFp2aTZNY0xka2FHREQ1Q2xYMUtreVbIXpa3xd/TcOPVES/wWdVelcwplTNt8T83mTbUEzWKeCwBAAAAAAAA",
+        "Program 5vNJx78mz7KVMjhuipyr9jKBKcMrKYGdjGkgE4LUmjKk consumed 64553 of 1400000 compute units",
+        "Program 5vNJx78mz7KVMjhuipyr9jKBKcMrKYGdjGkgE4LUmjKk success",
+        "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+        "Program ComputeBudget111111111111111111111111111111 success"
+      ],
+      "postBalances": [
+        14964655256,
+        6737280,
+        1252800,
+        11379600,
+        9951781120,
+        1343280,
+        1141440,
+        9744000,
+        15701760,
+        1141440,
+        1
+      ],
+      "postTokenBalances": [],
+      "preBalances": [
+        14964660256,
+        6737280,
+        1252800,
+        11379600,
+        9951781120,
+        1343280,
+        1141440,
+        9744000,
+        15701760,
+        1141440,
+        1
+      ],
+      "preTokenBalances": [],
+      "rewards": [],
+      "status": {
+        "Ok": null
+      }
+    },
+    "slot": 383874824,
+    "transaction": [
+      "3G7zdvGQnbcTxFckHHCSbs9ew2z4xs3VVveeXt3CqWPxHcB7K4P9pXJRjisaUKsrToku6DrBcW3m4R7N3NwHFwk43cwRuqf7pwgECLh5ym6LK1cqafbrve28wo7GC6d3V2C2n4iEFGgiPZKHn6A4qmWVsxrpzUm9Tc1yKJWFfgTeRevQLwe7xRQtXVifMkrQmMVGFnezsuKhy3GsnpejAP6fMtLSyMqu2EZ9gEVnz7qUTXFLEt3o5Ax2pDx1W3R5dYfDum9iAikjaDW6LZ9irQ6NqCAHcRjTCNobyfNdD6Mv9NiqUxGEGi2kCfiAaUwcnKqcSQwiuamrg7KUT7YkayMDTJ7GxQazyYY8jon4WxPsmdikJKA69AXJs2AvsFfp25Ji2qRDiqYXpxYH1uNj8cG79KxYc2L7HDdTi1g8qrkL8MURx5AeijekKs2vaHJfyiFwTZ5Fic7r8XudFEunXjDDabGhEFJViTFh7DT9eHd3ZuB81ZhWZXx3uNm39yKWjb7g3cW5NDrnhYD4ubkZAgfY5iU2tyoaxG9ktrqvXtx9qKZvuLjUUi8GWxTr4TM6mQcs7XD2wsgFwExWPpBm6gB1m23X1Zm9cPJAbSrhim13rNqgCfs16v3BSFMbJ3X5DKi2sikCwFPQ3uP655z1XqFErd8U1Ea64b739C3Ky2ieapnDapXxxxbjmrjyxcjGce6KmdxSB9DLrv71SNpRX3vwDqaNQSpf7EEsWNU95XBUsKMXMyRRWXA9QoHDrnKb4M8jHcqmv4TzJjeb32hLXpMo8EJLzKBVXVdBD8ZFHMqh8rWFPiX1f5LqB675YcNH28VcY9AmrNwvo5Z5CqYydX3kMBLCXJrrA259AxvV8rxDj4PfDFeR8qT5fGnbR1Q5DKsmvFhsH4yVX2v97YckFRnWqTZ2xi3jFUsGihdoAR52BBUry7pgUi5E33zxToXhpG5opQZPv4y5X1rdbFrXqxZBkZac8fhghD2TetsZGES7cuHBA9ZUmoBPVTe8f",
+      "base58"
+    ],
+    "version": "legacy"
+  },
+  "id": 1
+}`
 
-	var rawResponse struct { Result rpc.TransactionWithMeta `json:"result"` }
+	var rawResponse struct {
+		Result rpc.TransactionWithMeta `json:"result"`
+	}
 	err := json.Unmarshal([]byte(scheduleBatchTxJSON), &rawResponse)
 	require.NoError(t, err, "should unmarshal JSON into rpc.TransactionWithMeta")
 
@@ -262,28 +308,18 @@ func TestParseTimelockEvents_CancelledEvent(t *testing.T) {
 				"status": { "Ok": null }
 			},
 			"slot": 383999999,
-			"transaction": {
-				"message": {
-					"accountKeys": [
-						"6EowuKYpamRf894N6Md5rQR5JtCRLAThfyCXfLa1Cavy",
-						"AvnunrkVjsy99kSagnguL6JUJCTLZ592DS7fk3MFvcSf"
-					],
-					"header": {
-						"numReadonlySignedAccounts": 0,
-						"numReadonlyUnsignedAccounts": 1,
-						"numRequiredSignatures": 1
-					},
-					"instructions": [],
-					"recentBlockhash": "71PFVwT2pcxLg89S9vqJD6VCuWbEenmHPVKRzGCE1mRq"
-				},
-				"signatures": [ "Zz6kUgd5zrvWfBAVpCsy9iJpAxJpwGVgHoVQXcgdEDeoB3qyc6F6xjtsBP3F6BsTykcSYB4gEDR6V4z71pA2xn7" ]
-			},
+			"transaction": [
+			  "KCUrq6ztDiyKw9y7sWgbPKouCvFx6Zd1XGGcNwWUFNWPPHNu1wt29JEa96qzedvqnaEgKj3LRtnhHH8Y8Nq6MzDUmwhVPmSkpATPpuZZua1RfAh6Gba3ReBcQ5rKrMJFsxMJ1kmx87For3uWsT6WFnViAUCM4oLagQvZubzAQnVxcec7JVJjowAp2sGe6QLJzKpxCZZ29EV8SDTRHh7AwnZVMmLsBFNKNnfmtSDskqbvqCHa2azFsQYqHmhGj5VdaJZUKZiTXzbn1LnB97KPsbMzjRBumuyVAKgx3EUQkpCVkDgiqm3pcHpdeU4Lp9M3R9F6rh9fkhLTuDpX8vsSEtvg1gyp4oVkFFKvpd7m1KLVbvPCg54XY4eLNjb7AD1Him6dosLBUqFz35yDjHqcpmMaaYBS28ycUqBg8mCM3zaXPRTM2nfr8dv9k9EfV2yqLSTybYnYroSw6mLwpDUQB4bmDrqXXMAhCwD6niAYPgpcxRTMx7k3eZAVXXtG6QBzEATKER8TWnJuGkMBzEt8fEnmzx9PDQX6T19QSueiGoaJvoi64ubifeyFj19Lh6wD9jk1CKmjnhGjwgVyGv7FcUPrMpuHWYeCeaZwMgb3BEwJ2XYPfejKwXeohaReHg1agRePsWNSpGFhf9gs4xhRrGgeSegaY47wJ7dbub9LBWnFdCSbUS3zPFv1EQucT",
+			  "base58"
+			],
 			"version": "legacy"
 		},
 		"id": 1
 	}`
 
-	rawResponse := struct { Result rpc.TransactionWithMeta `json:"result"` }{}
+	rawResponse := struct {
+		Result rpc.TransactionWithMeta `json:"result"`
+	}{}
 	err := json.Unmarshal([]byte(cancelTxJSON), &rawResponse)
 	require.NoError(t, err)
 
