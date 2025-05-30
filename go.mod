@@ -14,8 +14,8 @@ require (
 	github.com/prometheus/client_golang v1.21.1
 	github.com/samber/lo v1.47.0
 	github.com/smartcontractkit/ccip-owner-contracts v0.0.0-20240917103524-56f1a8d2cd4b
-	github.com/smartcontractkit/chain-selectors v1.0.48
-	github.com/smartcontractkit/chainlink-ccip/chains/solana v0.0.0-20250527111814-1c5342edf3b4
+	github.com/smartcontractkit/chain-selectors v1.0.55
+	github.com/smartcontractkit/chainlink-ccip/chains/solana v0.0.0-20250515132731-ad40fab9b75e
 	github.com/smartcontractkit/chainlink-testing-framework/framework v0.4.7
 	github.com/smartcontractkit/mcms v0.20.1
 	github.com/spf13/cobra v1.8.1

@@ -428,10 +428,10 @@ github.com/sirupsen/logrus v1.9.3 h1:dueUQJ1C2q9oE3F7wvmSGAaVtTmUizReu6fjN8uqzbQ
 github.com/sirupsen/logrus v1.9.3/go.mod h1:naHLuLoDiP4jHNo9R0sCBMtWGeIprob74mVsIT4qYEQ=
 github.com/smartcontractkit/ccip-owner-contracts v0.0.0-20240917103524-56f1a8d2cd4b h1:ejMDDk74A9cTfeDow+QArm8Z+bZ9QwGP/1DPCiwPqWM=
 github.com/smartcontractkit/ccip-owner-contracts v0.0.0-20240917103524-56f1a8d2cd4b/go.mod h1:p7L/xNEQpHDdZtgFA6/FavuZHqvV3kYhQysxBywmq1k=
-github.com/smartcontractkit/chain-selectors v1.0.48 h1:wa03tlcGj08qZfv1p+LXZIimpTBBH2CzTxHVqXGrfec=
-github.com/smartcontractkit/chain-selectors v1.0.48/go.mod h1:xsKM0aN3YGcQKTPRPDDtPx2l4mlTN1Djmg0VVXV40b8=
-github.com/smartcontractkit/chainlink-ccip/chains/solana v0.0.0-20250527111814-1c5342edf3b4 h1:i8/YmASm4mR0R2VSeM6p6reoMO+fnR/w+LLAXLQVDc4=
-github.com/smartcontractkit/chainlink-ccip/chains/solana v0.0.0-20250527111814-1c5342edf3b4/go.mod h1:k3/Z6AvwurPUlfuDFEonRbkkiTSgNSrtVNhJEWNlUZA=
+github.com/smartcontractkit/chain-selectors v1.0.55 h1:jn8cwTBEzAi/eQRDO7EbFpZFn60yxygnSSPP2HPbYs0=
+github.com/smartcontractkit/chain-selectors v1.0.55/go.mod h1:xsKM0aN3YGcQKTPRPDDtPx2l4mlTN1Djmg0VVXV40b8=
+github.com/smartcontractkit/chainlink-ccip/chains/solana v0.0.0-20250515132731-ad40fab9b75e h1:4Hx+m9MovqsayvKdYjnj6OQ5pxXkpU2LDz0UNRuqoA8=
+github.com/smartcontractkit/chainlink-ccip/chains/solana v0.0.0-20250515132731-ad40fab9b75e/go.mod h1:k3/Z6AvwurPUlfuDFEonRbkkiTSgNSrtVNhJEWNlUZA=
 github.com/smartcontractkit/chainlink-common v0.6.1-0.20250329081313-84ec641e0758 h1:SyaVoJtYZ54dO4HyUcfWsuvC0hRsjk+Lyy/k++WQc7Y=
 github.com/smartcontractkit/chainlink-common v0.6.1-0.20250329081313-84ec641e0758/go.mod h1:ASXpANdCfcKd+LF3Vhz37q4rmJ/XYQKEQ3La1k7idp0=
 github.com/smartcontractkit/chainlink-testing-framework/framework v0.4.7 h1:E7k5Sym9WnMOc4X40lLnQb6BMosxi8DfUBU9pBJjHOQ=

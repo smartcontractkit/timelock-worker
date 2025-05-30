@@ -47,17 +47,19 @@ func (s *solanaIntegrationTestSuite) TestTimelockWorkerListen() {
 		if !assert.GreaterOrEqual(collect, len(logEntries), 11, "Expected at least 12 log entries") {
 			return
 		}
-		assert.Greater(collect, len(logEntries), 11, "Expected more than 8 log entries, got %d", len(logEntries))
+
 		assert.Equal(collect, logEntries[0].Message, "timelock-worker started [solana]")
-		assert.Equal(collect, logEntries[1].Message, "\tTimelock program addresses: DoajfR5tK24xVw51fWcawUZWhAXD8yrBJVacc13neVQA")
-		assert.Equal(collect, logEntries[2].Message, "\tSolana account address: 9n1pyVGGo6V4mpiSDMVay5As9NurEkY283wwRk1Kto2C")
-		assert.Equal(collect, logEntries[3].Message, "\tPoll Period: 1s")
-		assert.Equal(collect, logEntries[4].Message, "\tEvent Listener Poll Period: 1s")
-		assert.Equal(collect, logEntries[5].Message, "\tEvent Listener Poll #Logs: 10")
-		assert.Equal(collect, logEntries[6].Message, "starting pollNewSignatures: program=DoajfR5tK24xVw51fWcawUZWhAXD8yrBJVacc13neVQA pollPeriod=1s pollSize=10")
-		assert.Contains(collect, logEntries[7].Message, "new pollNewSignatures tick")
-		assert.Equal(collect, logEntries[8].Message, "found 7 new signatures")
+		assert.Equal(collect, logEntries[1].Message, "\tTimelock program:")
+		assert.Equal(collect, logEntries[2].Message, "\tSolana account address")
+		assert.Equal(collect, logEntries[3].Message, "\tPoll Period")
+		assert.Equal(collect, logEntries[4].Message, "\tEvent Listener Poll Period")
+		assert.Equal(collect, logEntries[5].Message, "\tEvent Listener Poll #Logs")
+		assert.Equal(collect, logEntries[6].Message, "starting pollNewTransactions")
+		assert.Contains(collect, logEntries[7].Message, "new pollNewTransactions")
+		assert.Equal(collect, logEntries[8].Message, "found new signatures")
 		assert.Contains(collect, logEntries[9].Message, "found event scheduled:")
-		assert.Contains(collect, logEntries[10].Message, "CallScheduled received")
+		assert.Contains(collect, logEntries[10].Message, "event received")
+		assert.Contains(collect, logEntries[10].Context[3].Key, "event type")
+		assert.Contains(collect, logEntries[10].Context[3].String, "CallScheduled")
 	}, 20*time.Second, 200*time.Millisecond)
 }

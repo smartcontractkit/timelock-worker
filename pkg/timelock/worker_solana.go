@@ -280,7 +280,7 @@ func (w *WorkerSolana) processTransactions(ctx context.Context, txChannel <-chan
 				}
 
 				if err := w.handleTx(ctxwc, log); err != nil {
-					w.logger.Errorf("error processing new log: %v\n", log)
+					w.logger.Errorf("error processing new log: %w %v\n", err, log)
 				}
 
 			case <-ctxwc.Done():
@@ -397,12 +397,12 @@ func (w *WorkerSolana) handleEventScheduled(ctx context.Context, event SolanaTim
 // startLog prints the timelock-worker configuration.
 func (w *WorkerSolana) startLog() {
 	w.logger.Info("timelock-worker started [solana]")
-	w.logger.Infow("\tTimelock program addresses: %v", w.timelockProgramKey.String())
+	w.logger.Infow("\tTimelock program:", "program address", w.timelockProgramKey.String())
 
 	wallet := w.privateKey.PublicKey()
 
-	w.logger.Infow("\tSolana account address: %v", wallet)
-	w.logger.Infow("\tPoll Period: %v", time.Duration(w.pollPeriod*int64(time.Second)).String())
-	w.logger.Infow("\tEvent Listener Poll Period: %v", time.Duration(w.listenerPollPeriod*int64(time.Second)).String())
-	w.logger.Infow("\tEvent Listener Poll #Logs: %v", w.pollSize)
+	w.logger.Infow("\tSolana account address", "wallet address", wallet)
+	w.logger.Infow("\tPoll Period", "period", time.Duration(w.pollPeriod*int64(time.Second)).String())
+	w.logger.Infow("\tEvent Listener Poll Period", "period", time.Duration(w.listenerPollPeriod*int64(time.Second)).String())
+	w.logger.Infow("\tEvent Listener Poll #Logs", "period", w.pollSize)
 }
