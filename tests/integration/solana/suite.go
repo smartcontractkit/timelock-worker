@@ -39,7 +39,7 @@ type solanaIntegrationTestSuite struct {
 func (s *solanaIntegrationTestSuite) SetupSuite() {
 	var err error
 	t := s.T()
-	s.Ctx = context.Background()
+	s.Ctx = s.T().Context()
 	in, err := framework.Load[Config](s.T())
 	s.Require().NoError(err, "Failed to load Solana configuration")
 	if in.SolanaChain.ContractsDir == "" {
