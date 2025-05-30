@@ -13,13 +13,13 @@ import (
 // rpcRequestSolana is what Solana JSON‐RPC looks like under the hood.
 type rpcRequestSolana struct {
 	JSONRPC string            `json:"jsonrpc"`
-	ID      interface{}       `json:"id"`
+	ID      any               `json:"id"`
 	Method  string            `json:"method"`
 	Params  []json.RawMessage `json:"params"`
 }
 
 // rpcHandler is your test’s little “router” for each incoming request.
-type rpcHandler func(req rpcRequestSolana) (result interface{}, err error)
+type rpcHandler func(req rpcRequestSolana) (result any, err error)
 
 // NewMockSolanaRPC spins up a httptest.Server that will:
 //
