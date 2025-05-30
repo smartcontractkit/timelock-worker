@@ -4,7 +4,7 @@
 # destination directory. The destination directory is used by the CTF e2e tests to
 # deploy the programs on Solana.
 
-# Usage: ./e2e/tests/solana/compile-mcm-contracts.sh
+# Usage: ./tests/integration/solana/compile-timelock-programs.sh
 
 set -euo pipefail
 
