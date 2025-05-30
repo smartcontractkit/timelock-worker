@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // rpcRequestSolana is what Solana JSON‐RPC looks like under the hood.
@@ -32,9 +34,7 @@ func NewMockSolanaRPC(t *testing.T, handler rpcHandler) *httptest.Server {
 		defer r.Body.Close()
 
 		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			t.Fatalf("read body: %v", err)
-		}
+		require.NoError(t, err, "read request body")
 
 		w.Header().Set("Content-Type", "application/json")
 
@@ -44,21 +44,19 @@ func NewMockSolanaRPC(t *testing.T, handler rpcHandler) *httptest.Server {
 		)
 
 		if isBatchRequest(body) {
-			if err := json.Unmarshal(body, &reqs); err != nil {
-				t.Fatalf("unmarshal batch: %v\n--> %s", err, string(body))
-			}
+			err = json.Unmarshal(body, &reqs)
+			require.NoError(t, err, "unmarshal batch request")
 			resp = buildBatchResponses(reqs, handler)
 		} else {
 			var req rpcRequestSolana
-			if err := json.Unmarshal(body, &req); err != nil {
-				t.Fatalf("unmarshal single request: %v\n--> %s", err, string(body))
-			}
+			err := json.Unmarshal(body, &req)
+			require.NoError(t, err, "unmarshal single request")
 			resp = buildRPCResponse(req, handler)
 		}
 
-		if err := json.NewEncoder(w).Encode(resp); err != nil {
-			t.Fatalf("encode response: %v", err)
-		}
+		err = json.NewEncoder(w).Encode(resp)
+		require.NoError(t, err, "encode response")
+
 	}))
 }
 
