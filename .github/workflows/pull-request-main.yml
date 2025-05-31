@@ -66,7 +66,7 @@ jobs:
           key: "${{ runner.os }}-mcms-contracts-${{ steps.solana-programs-cache-key.outputs.key }}"
 
       - name: Build Solana programs
-        if: steps.solana-programs-cache-keys.outputs.cache-hit != 'true'
+        if: steps.solana-programs-cache-key.outputs.cache-hit != 'true'
         shell: bash
         run: |
           ./tests/integration/solana/compile-timelock-programs.sh
