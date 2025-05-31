@@ -116,15 +116,10 @@ func TestStartPolling(t *testing.T) {
 					err := json.Unmarshal(req.Params[0], &sigStr)
 					require.NoError(t, err)
 
-					idx := -1
 					for i, fs := range tc.signaturesResponse {
 						if fs.Signature.String() == sigStr {
-							idx = i
-							break
+							return tc.txResponses[i], nil
 						}
-					}
-					if idx >= 0 {
-						return tc.txResponses[idx], nil
 					}
 					return nil, nil
 
