@@ -22,6 +22,36 @@ type fakeSig struct {
 	Slot      uint64           `json:"slot"`
 }
 
+func assertExpectedTransactions(t *testing.T, ch <-chan *rpc.TransactionWithMeta, done <-chan struct{}, ctx context.Context, want []map[string]interface{}) int {
+	t.Helper()
+	got := 0
+
+	for {
+		select {
+		case tx, ok := <-ch:
+			if !ok {
+				return got
+			}
+			got++
+			raw, err := json.Marshal(tx.Transaction)
+			require.NoError(t, err)
+
+			var parsed struct {
+				Signatures []string `json:"signatures"`
+			}
+			require.NoError(t, json.Unmarshal(raw, &parsed))
+
+			exp := want[len(want)-got]["transaction"].(map[string]interface{})["signatures"].([]string)
+			require.Equal(t, exp, parsed.Signatures)
+
+		case <-done:
+			return got
+		case <-ctx.Done():
+			return got
+		}
+	}
+}
+
 func TestStartPolling(t *testing.T) {
 	const (
 		sigStrA = "3n8uFwJjTyBR3UqTGUjMncmzMJkjp7sk6uMvGCazgGNsCJpKaDxnKnUR3XNG2Exz4MyfpNHCEWGu2gZiSGGZVK3c"
@@ -46,10 +76,8 @@ func TestStartPolling(t *testing.T) {
 			wantTxCount:        0,
 		},
 		{
-			name: "single signature => single tx",
-			signaturesResponse: []fakeSig{
-				{Signature: sigA, Slot: 10},
-			},
+			name:               "single signature => single tx",
+			signaturesResponse: []fakeSig{{Signature: sigA, Slot: 10}},
 			txResponses: []map[string]interface{}{{
 				"slot": 10,
 				"transaction": map[string]interface{}{
@@ -65,11 +93,8 @@ func TestStartPolling(t *testing.T) {
 			wantTxCount: 1,
 		},
 		{
-			name: "multiple signatures => multiple txs",
-			signaturesResponse: []fakeSig{
-				{Signature: sig1, Slot: 5},
-				{Signature: sig2, Slot: 6},
-			},
+			name:               "multiple signatures => multiple txs",
+			signaturesResponse: []fakeSig{{Signature: sig1, Slot: 5}, {Signature: sig2, Slot: 6}},
 			txResponses: []map[string]interface{}{
 				{
 					"slot": 5,
@@ -104,33 +129,29 @@ func TestStartPolling(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var sigCalls, txCalls atomic.Int32
 
-			mock := NewMockSolanaRPC(t, func(req rpcRequestSolana) (interface{}, error) {
+			mockRPC := NewMockSolanaRPC(t, func(req rpcRequestSolana) (interface{}, error) {
 				switch req.Method {
 				case "getSignaturesForAddress":
 					sigCalls.Add(1)
 					return tc.signaturesResponse, nil
-
 				case "getTransaction":
 					txCalls.Add(1)
 					var sigStr string
-					err := json.Unmarshal(req.Params[0], &sigStr)
-					require.NoError(t, err)
-
+					require.NoError(t, json.Unmarshal(req.Params[0], &sigStr))
 					for i, fs := range tc.signaturesResponse {
 						if fs.Signature.String() == sigStr {
 							return tc.txResponses[i], nil
 						}
 					}
 					return nil, nil
-
 				default:
 					t.Fatalf("unexpected method %s", req.Method)
 					return nil, nil
 				}
 			})
-			defer mock.Close()
+			defer mockRPC.Close()
 
-			client := rpc.New(mock.URL)
+			client := rpc.New(mockRPC.URL)
 			timelockKey, err := solana.NewRandomPrivateKey()
 			require.NoError(t, err)
 
@@ -146,36 +167,12 @@ func TestStartPolling(t *testing.T) {
 			defer cancel()
 
 			done, ch := w.StartPolling(ctx)
-			got := 0
 
-		Loop:
-			for {
-				select {
-				case tx, ok := <-ch:
-					if !ok {
-						break Loop
-					}
-					got++
-					raw, err := json.Marshal(tx.Transaction)
-					require.NoError(t, err)
-					var parsed struct {
-						Signatures []string `json:"signatures"`
-					}
-					err = json.Unmarshal(raw, &parsed)
-					require.NoError(t, err)
-					exp := tc.txResponses[len(tc.txResponses)-got]["transaction"].(map[string]interface{})["signatures"].([]string)
-					require.Equal(t, exp, parsed.Signatures)
+			got := assertExpectedTransactions(t, ch, done, ctx, tc.txResponses)
 
-				case <-done:
-					break Loop
-				case <-ctx.Done():
-					break Loop
-				}
-			}
-
-			require.GreaterOrEqual(t, sigCalls.Load(), int32(1), "should call getSignaturesForAddress at least once per signature")
-			require.GreaterOrEqual(t, txCalls.Load(), int32(len(tc.signaturesResponse)), "should call getTransaction at least once per signature")
-			require.Equal(t, tc.wantTxCount, got, "number of transactions received")
+			require.GreaterOrEqual(t, sigCalls.Load(), int32(1), "should call getSignaturesForAddress")
+			require.GreaterOrEqual(t, txCalls.Load(), int32(len(tc.signaturesResponse)), "should call getTransaction")
+			require.Equal(t, tc.wantTxCount, got, "received tx count")
 		})
 	}
 }
