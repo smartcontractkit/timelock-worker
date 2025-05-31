@@ -113,7 +113,8 @@ func TestStartPolling(t *testing.T) {
 				case "getTransaction":
 					txCalls.Add(1)
 					var sigStr string
-					require.NoError(t, json.Unmarshal(req.Params[0], &sigStr))
+					err := json.Unmarshal(req.Params[0], &sigStr)
+					require.NoError(t, err)
 
 					idx := -1
 					for i, fs := range tc.signaturesResponse {
@@ -165,7 +166,8 @@ func TestStartPolling(t *testing.T) {
 					var parsed struct {
 						Signatures []string `json:"signatures"`
 					}
-					require.NoError(t, json.Unmarshal(raw, &parsed))
+					err = json.Unmarshal(raw, &parsed)
+					require.NoError(t, err)
 					exp := tc.txResponses[len(tc.txResponses)-got]["transaction"].(map[string]interface{})["signatures"].([]string)
 					require.Equal(t, exp, parsed.Signatures)
 
