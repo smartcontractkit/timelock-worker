@@ -194,30 +194,31 @@ func TestPollNewSignatures(t *testing.T) {
 
 func TestHandleEventCancelled(t *testing.T) {
 	id := [32]byte{1, 2, 3}
-
+	s := newMockScheduler(t)
 	worker := &WorkerSolana{
-		logger: testLogger,
+		logger:    testLogger,
+		scheduler: s,
 	}
-
+	s.On("delFromScheduler", mock.Anything).Return(nil)
 	worker.handleEventCancelled(context.Background(), SolanaTimelockCallCancelledEvent{ID: id})
-	// TODO: once scheduler is added we can assert expectation from a mock scheduler here.
 }
 
 func TestHandleEventExecuted_Done(t *testing.T) {
 	id := [32]byte{4, 5, 6}
 	mockInsp := new(mocks.TimelockInspector)
 	mockInsp.On("IsOperationDone", mock.Anything, "some.addr", id).Return(true, nil)
-
+	s := newMockScheduler(t)
 	worker := &WorkerSolana{
 		timelockFullAddress: "some.addr",
 		inspector:           mockInsp,
+		scheduler:           s,
 		logger:              testLogger,
 	}
+	s.On("delFromScheduler", mock.Anything).Return(nil)
 	event := SolanaTimelockCallExecutedEvent{ID: id, Target: solana.PublicKey{}}
 	err := worker.handleEventExecuted(context.Background(), event)
 	require.NoError(t, err)
 	mockInsp.AssertExpectations(t)
-	// TODO: once scheduler is added we can assert expectation from a mock scheduler here.
 }
 
 func TestHandleEventScheduled_IsOp(t *testing.T) {
@@ -225,12 +226,14 @@ func TestHandleEventScheduled_IsOp(t *testing.T) {
 	mockInsp := new(mocks.TimelockInspector)
 	mockInsp.On("IsOperationDone", mock.Anything, "some.addr", id).Return(false, nil)
 	mockInsp.On("IsOperation", mock.Anything, "some.addr", id).Return(true, nil)
-
+	s := newMockScheduler(t)
 	worker := &WorkerSolana{
 		timelockFullAddress: "some.addr",
 		inspector:           mockInsp,
+		scheduler:           s,
 		logger:              testLogger,
 	}
+	s.On("addToScheduler", mock.Anything).Return(nil)
 	event := SolanaTimelockCallScheduledEvent{ID: id, Target: solana.PublicKey{}}
 	err := worker.handleEventScheduled(context.Background(), event)
 	require.NoError(t, err)
@@ -245,6 +248,7 @@ func TestHandleEventScheduled_OperationDone(t *testing.T) {
 	worker := &WorkerSolana{
 		timelockFullAddress: "some.addr",
 		inspector:           mockInsp,
+		scheduler:           newMockScheduler(t),
 		logger:              testLogger,
 	}
 	event := SolanaTimelockCallScheduledEvent{ID: id, Target: solana.PublicKey{}}
@@ -261,13 +265,13 @@ func TestHandleEventExecuted_NotDone(t *testing.T) {
 	worker := &WorkerSolana{
 		timelockFullAddress: "some.addr",
 		inspector:           mockInsp,
+		scheduler:           newMockScheduler(t),
 		logger:              testLogger,
 	}
 	event := SolanaTimelockCallExecutedEvent{ID: id, Target: solana.PublicKey{}}
 	err := worker.handleEventExecuted(context.Background(), event)
 	require.NoError(t, err)
 	mockInsp.AssertExpectations(t)
-	// TODO: once scheduler is added we can assert expectation from a mock scheduler here.
 }
 
 func TestHandleEventScheduled_IsOp_Error(t *testing.T) {
@@ -279,6 +283,7 @@ func TestHandleEventScheduled_IsOp_Error(t *testing.T) {
 	worker := &WorkerSolana{
 		timelockFullAddress: "some.addr",
 		inspector:           mockInsp,
+		scheduler:           newMockScheduler(t),
 		logger:              testLogger,
 	}
 	event := SolanaTimelockCallScheduledEvent{ID: id, Target: solana.PublicKey{}}
@@ -293,9 +298,9 @@ func TestHandleEventExecuted_Error(t *testing.T) {
 	worker := &WorkerSolana{
 		timelockFullAddress: "some.addr",
 		inspector:           mockInsp,
+		scheduler:           newMockScheduler(t),
 		logger:              testLogger,
 	}
 	event := SolanaTimelockCallExecutedEvent{ID: id, Target: solana.PublicKey{}}
 	require.ErrorContains(t, worker.handleEventExecuted(context.Background(), event), "timelock.isOperationDone call failed")
-	// TODO: once scheduler is added we can assert expectation from a mock scheduler here.
 }

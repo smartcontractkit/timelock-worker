@@ -100,11 +100,10 @@ func NewTimelockWorkerSolana(
 	}
 
 	if dryRun {
-		tWorker.scheduler = nil // TODO: add solana nopScheduler implementation
+		tWorker.scheduler = newNopScheduler(logger)
 	} else {
-		tWorker.scheduler = nil // TODO: add solana Scheduler implementation
+		tWorker.scheduler = newScheduler(time.Duration(pollPeriod)*time.Second, logger, func(context.Context, []TimelockCallScheduled) {})
 	}
-
 	return tWorker, nil
 }
 
@@ -117,7 +116,7 @@ func (w *WorkerSolana) Listen(ctx context.Context) error {
 	w.startLog()
 
 	// Run the scheduler to add/del operations in a thread-safe way.
-	//schedulingDone = w.scheduler.runScheduler(ctxwc)
+	schedulingDone := w.scheduler.runScheduler(ctxwc)
 
 	//// Retrieve logs asynchronously.
 	pollDone, txCh := w.pollNewTransactions(ctxwc)
@@ -136,14 +135,14 @@ func (w *WorkerSolana) Listen(ctx context.Context) error {
 
 	w.logger.Info("shutting down timelock-worker")
 	w.logger.Info("dumping operation store")
-	// TODO: re-add when scheduler is implemented
-	//w.scheduler.dumpOperationStore(time.Now)
+
+	w.scheduler.dumpOperationStore(time.Now)
 
 	// Wait for all goroutines to finish.
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 
-	<-isclosed.All(shutdownCtx, pollDone, procDone) //nolint:contextcheck
+	<-isclosed.All(shutdownCtx, schedulingDone, pollDone, procDone) //nolint:contextcheck
 
 	return nil
 }
@@ -341,8 +340,7 @@ func (w *WorkerSolana) handleEventCancelled(_ context.Context, event SolanaTimel
 	w.logger.With(operationID, fmt.Sprintf("%x", event.ID)).
 		Infow("event received, cancelling operation", "event type", eventCancelled)
 
-	// TODO: add scheduler call once scheduler is implemented
-	//w.scheduler.delFromScheduler(event.ID)
+	w.scheduler.delFromScheduler(event.ID)
 }
 
 // handleEventExecuted checks if the operation is done and deletes it from the scheduler if it is.
@@ -357,8 +355,8 @@ func (w *WorkerSolana) handleEventExecuted(ctx context.Context, event SolanaTime
 	}
 	if isDone {
 		logger.Infow("event received, deleting operation from scheduler", "event type ", eventCallExecuted)
-		// TODO: add scheduler call once scheduler is implemented
-		//w.scheduler.delFromScheduler(event.ID)
+
+		w.scheduler.delFromScheduler(event.ID)
 	} else {
 		logger.Warn("operation not done; skipping deletion from scheduler")
 	}
@@ -384,8 +382,7 @@ func (w *WorkerSolana) handleEventScheduled(ctx context.Context, event SolanaTim
 
 		if isOp {
 			logger.Infow("event received", "event type", eventCallScheduled)
-			// TODO: add scheduler call once scheduler is implemented
-			// w.scheduler.addToScheduler(cs)
+			w.scheduler.addToScheduler(&solanaTimelockCallScheduled{callScheduledEvent: event})
 		} else {
 			logger.Warn("invalid operation")
 		}

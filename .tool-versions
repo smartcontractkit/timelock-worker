@@ -1,4 +1,4 @@
 golang 1.24.3
 golangci-lint 1.64.8
 task 3.40.0
-mockery 2.50.0
+mockery 3.3.2
