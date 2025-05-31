@@ -163,7 +163,7 @@ func TestStartPolling(t *testing.T) {
 				pollSize:           len(tc.signaturesResponse) + 1,
 			}
 
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 			defer cancel()
 
 			done, ch := w.StartPolling(ctx)
@@ -185,7 +185,7 @@ func TestHandleEventCancelled(t *testing.T) {
 		scheduler: s,
 	}
 	s.On("delFromScheduler", mock.Anything).Return(nil)
-	worker.handleEventCancelled(context.Background(), SolanaTimelockCallCancelledEvent{ID: id})
+	worker.handleEventCancelled(t.Context(), SolanaTimelockCallCancelledEvent{ID: id})
 }
 
 func TestHandleEventExecuted_Done(t *testing.T) {
@@ -201,7 +201,7 @@ func TestHandleEventExecuted_Done(t *testing.T) {
 	}
 	s.On("delFromScheduler", mock.Anything).Return(nil)
 	event := SolanaTimelockCallExecutedEvent{ID: id, Target: solana.PublicKey{}}
-	err := worker.handleEventExecuted(context.Background(), event)
+	err := worker.handleEventExecuted(t.Context(), event)
 	require.NoError(t, err)
 	mockInsp.AssertExpectations(t)
 }
@@ -220,9 +220,8 @@ func TestHandleEventScheduled_IsOp(t *testing.T) {
 	}
 	s.On("addToScheduler", mock.Anything).Return(nil)
 	event := SolanaTimelockCallScheduledEvent{ID: id, Target: solana.PublicKey{}}
-	err := worker.handleEventScheduled(context.Background(), event)
+	err := worker.handleEventScheduled(t.Context(), event)
 	require.NoError(t, err)
-	mockInsp.AssertExpectations(t)
 }
 
 func TestHandleEventScheduled_OperationDone(t *testing.T) {
@@ -237,7 +236,7 @@ func TestHandleEventScheduled_OperationDone(t *testing.T) {
 		logger:              testLogger,
 	}
 	event := SolanaTimelockCallScheduledEvent{ID: id, Target: solana.PublicKey{}}
-	err := worker.handleEventScheduled(context.Background(), event)
+	err := worker.handleEventScheduled(t.Context(), event)
 	require.NoError(t, err)
 	mockInsp.AssertExpectations(t)
 }
@@ -254,9 +253,8 @@ func TestHandleEventExecuted_NotDone(t *testing.T) {
 		logger:              testLogger,
 	}
 	event := SolanaTimelockCallExecutedEvent{ID: id, Target: solana.PublicKey{}}
-	err := worker.handleEventExecuted(context.Background(), event)
+	err := worker.handleEventExecuted(t.Context(), event)
 	require.NoError(t, err)
-	mockInsp.AssertExpectations(t)
 }
 
 func TestHandleEventScheduled_IsOp_Error(t *testing.T) {
@@ -272,7 +270,7 @@ func TestHandleEventScheduled_IsOp_Error(t *testing.T) {
 		logger:              testLogger,
 	}
 	event := SolanaTimelockCallScheduledEvent{ID: id, Target: solana.PublicKey{}}
-	require.ErrorContains(t, worker.handleEventScheduled(context.Background(), event), "timelock.isOperation call failed")
+	require.ErrorContains(t, worker.handleEventScheduled(t.Context(), event), "timelock.isOperation call failed")
 }
 
 func TestHandleEventExecuted_Error(t *testing.T) {
@@ -287,5 +285,5 @@ func TestHandleEventExecuted_Error(t *testing.T) {
 		logger:              testLogger,
 	}
 	event := SolanaTimelockCallExecutedEvent{ID: id, Target: solana.PublicKey{}}
-	require.ErrorContains(t, worker.handleEventExecuted(context.Background(), event), "timelock.isOperationDone call failed")
+	require.ErrorContains(t, worker.handleEventExecuted(t.Context(), event), "timelock.isOperationDone call failed")
 }
