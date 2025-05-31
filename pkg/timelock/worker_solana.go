@@ -213,8 +213,7 @@ func (w *WorkerSolana) pollNewTransactions(
 
 				// Build JSON-RPC batch requests (oldest→newest)
 				requests := make(jsonrpc.RPCRequests, len(sigs))
-				for i, info := range sigs {
-					j := len(sigs) - 1 - i // reverse to oldest first
+				for j, info := slices.Backwards(sigs) {
 					requests[j] = jsonrpc.NewRequest(
 						"getTransaction",
 						info.Signature,
