@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/gagliardetto/solana-go/rpc/jsonrpc"
@@ -119,7 +120,7 @@ func (w *WorkerSolana) Listen(ctx context.Context) error {
 	schedulingDone := w.scheduler.runScheduler(ctxwc)
 
 	//// Retrieve logs asynchronously.
-	pollDone, txCh := w.pollNewTransactions(ctxwc)
+	pollDone, txCh := w.StartPolling(ctxwc)
 
 	// Start processing transactions
 	procDone := w.processTransactions(ctxwc, txCh)
@@ -147,108 +148,129 @@ func (w *WorkerSolana) Listen(ctx context.Context) error {
 	return nil
 }
 
-// pollNewTransactions continuously fetches only new txs touching the program,
-// then loads each confirmed transaction so it can parse its LogMessages.
-func (w *WorkerSolana) pollNewTransactions(
-	ctx context.Context,
-) (<-chan struct{}, <-chan *rpc.TransactionWithMeta) {
+func (w *WorkerSolana) StartPolling(ctx context.Context) (<-chan struct{}, <-chan *rpc.TransactionWithMeta) {
 	done := make(chan struct{})
 	txCh := make(chan *rpc.TransactionWithMeta, w.pollSize)
+	sigCh := make(chan solana.Signature, 100)
 
-	go func() {
-		defer func() {
-			w.logger.Info("pollNewTransactions exiting")
-			close(done)
-			close(txCh)
-		}()
-
-		w.logger.Infow(
-			"starting pollNewTransactions",
-			"program", w.timelockProgramKey,
-			"pollPeriod", w.pollPeriod,
-			"pollSize", w.pollSize,
-		)
-
-		ticker := time.NewTicker(time.Duration(w.pollPeriod) * time.Second)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ctx.Done():
-				w.logger.Info("context cancelled")
-				return
-
-			case <-ticker.C:
-				w.logger.Infow("new pollNewTransactions", "tick", time.Now().Format(time.RFC3339))
-
-				var until solana.Signature
-				if w.lastSignature != nil {
-					until = *w.lastSignature
-				}
-
-				// Always try to fetch signatures
-				sigs, err := w.solanaClient.GetSignaturesForAddressWithOpts(
-					ctx,
-					w.timelockProgramKey,
-					&rpc.GetSignaturesForAddressOpts{
-						Limit: &w.pollSize,
-						Until: until,
-					},
-				)
-				if err != nil {
-					w.logger.Errorf("GetSignaturesForAddress failed: %v", err)
-					continue
-				}
-				if len(sigs) == 0 {
-					if w.lastSignature == nil {
-						w.logger.Warn("no existing sigs to anchor")
-					} else {
-						w.logger.Debug("no new sigs")
-					}
-
-					continue
-				}
-
-				w.logger.Infow("found new signatures", "num signatures", len(sigs))
-
-				// Build JSON-RPC batch requests (oldest→newest)
-				requests := make(jsonrpc.RPCRequests, len(sigs))
-				for j, info := slices.Backwards(sigs) {
-					requests[j] = jsonrpc.NewRequest(
-						"getTransaction",
-						info.Signature,
-						&rpc.GetTransactionOpts{Encoding: solana.EncodingBase58},
-					)
-				}
-
-				// Call getTransaction in batch
-				resps, err := w.solanaClient.RPCCallBatch(ctx, requests)
-				if err != nil {
-					w.logger.Errorf("RPCCallBatch failed: %v", err)
-					continue
-				}
-
-				for i, resp := range resps {
-					sigInfo := sigs[len(sigs)-1-i]
-					if resp.Error != nil {
-						w.logger.Warnf("tx %s failed: %v", sigInfo.Signature, resp.Error)
-						continue
-					}
-
-					tx := new(rpc.TransactionWithMeta)
-					if err := resp.GetObject(&tx); err != nil {
-						w.logger.Warnf("decode %s failed: %v", sigInfo.Signature, err)
-						continue
-					}
-
-					w.lastSignature = &sigInfo.Signature
-					txCh <- tx
-				}
-			}
-		}
-	}()
+	go w.pollSignatures(ctx, sigCh, done)
+	go w.loadTransactions(ctx, sigCh, txCh, done)
 
 	return done, txCh
+}
+
+// pollSignatures periodically polls new signatures from the given timelock program and sends them to the tx fetching channel.
+func (w *WorkerSolana) pollSignatures(ctx context.Context, sigCh chan<- solana.Signature, done chan struct{}) {
+	ticker := time.NewTicker(time.Duration(w.pollPeriod) * time.Second)
+	defer ticker.Stop()
+	defer close(sigCh)
+	defer close(done)
+
+	w.logger.Infow("starting pollSignatures", "program", w.timelockProgramKey)
+
+	for {
+		select {
+		case <-ctx.Done():
+			w.logger.Info("pollSignatures context cancelled")
+			return
+		case <-ticker.C:
+			var until solana.Signature
+			if w.lastSignature != nil {
+				until = *w.lastSignature
+			}
+
+			sigs, err := w.solanaClient.GetSignaturesForAddressWithOpts(
+				ctx,
+				w.timelockProgramKey,
+				&rpc.GetSignaturesForAddressOpts{
+					Limit: &w.pollSize,
+					Until: until,
+				},
+			)
+			if err != nil {
+				w.logger.Errorf("GetSignaturesForAddress failed: %v", err)
+				continue
+			}
+			if len(sigs) == 0 {
+				continue
+			}
+
+			slices.Reverse(sigs)
+			for _, info := range sigs {
+				select {
+				case sigCh <- info.Signature:
+				case <-ctx.Done():
+					return
+				}
+				w.lastSignature = &info.Signature
+			}
+		}
+	}
+}
+
+// loadTransactions tries getting a tx multiple times
+func (w *WorkerSolana) loadTransactions(ctx context.Context, sigCh <-chan solana.Signature, txCh chan<- *rpc.TransactionWithMeta, done chan struct{}) {
+	for {
+		select {
+		case <-ctx.Done():
+			w.logger.Info("loadTransactions context cancelled")
+			return
+		case sig, ok := <-sigCh:
+			if !ok {
+				return
+			}
+			tx, err := w.retryGetTransaction(ctx, sig)
+			if err != nil {
+				w.logger.Warnf("getTransaction %s failed permanently: %v", sig, err)
+				continue
+			}
+			select {
+			case txCh <- tx:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}
+}
+
+// errOrDefault returns rpc error or deadline exceeded
+func errOrDefault(err error, resps jsonrpc.RPCResponses) error {
+	if len(resps) > 0 && resps[0].Error != nil {
+		return resps[0].Error
+	}
+	if err != nil {
+		return err
+	}
+	return context.DeadlineExceeded
+}
+
+func (w *WorkerSolana) retryGetTransaction(ctx context.Context, sig solana.Signature) (*rpc.TransactionWithMeta, error) {
+	var tx *rpc.TransactionWithMeta
+
+	operation := func() error {
+		req := jsonrpc.NewRequest("getTransaction", sig, &rpc.GetTransactionOpts{Encoding: solana.EncodingBase58})
+		resps, err := w.solanaClient.RPCCallBatch(ctx, jsonrpc.RPCRequests{req})
+		if err != nil || len(resps) == 0 || resps[0].Error != nil {
+			return errOrDefault(err, resps)
+		}
+
+		tx = new(rpc.TransactionWithMeta)
+		if err := resps[0].GetObject(&tx); err != nil {
+			return err
+		}
+		return nil // success
+	}
+
+	eb := backoff.NewExponentialBackOff()
+	eb.InitialInterval = 1 * time.Second
+	eb.MaxElapsedTime = 8 * time.Second // limit retries
+
+	err := backoff.Retry(operation, backoff.WithContext(eb, ctx))
+	if err != nil {
+		w.logger.Errorw("")
+		return nil, err
+	}
+	return tx, nil
 }
 
 func (w *WorkerSolana) processTransactions(ctx context.Context, txChannel <-chan *rpc.TransactionWithMeta) <-chan struct{} {
@@ -269,7 +291,7 @@ func (w *WorkerSolana) processTransactions(ctx context.Context, txChannel <-chan
 
 		for {
 			select {
-			case log, open := <-txChannel:
+			case tx, open := <-txChannel:
 				if !open {
 					close(newDone)
 					txChannel = nil
@@ -277,8 +299,8 @@ func (w *WorkerSolana) processTransactions(ctx context.Context, txChannel <-chan
 					continue
 				}
 
-				if err := w.handleTx(ctxwc, log); err != nil {
-					w.logger.Errorf("error processing new log: %w %v\n", err, log)
+				if err := w.handleTx(ctxwc, tx); err != nil {
+					w.logger.Errorf("error processing new tx: %w %v\n", err, tx)
 				}
 
 			case <-ctxwc.Done():
@@ -310,9 +332,7 @@ func (w *WorkerSolana) handleTx(ctx context.Context, tx *rpc.TransactionWithMeta
 		w.logger.Debugf("found event scheduled: %s", scheduledEvent.ID)
 		err = w.handleEventScheduled(ctx, scheduledEvent)
 		if err != nil {
-			w.logger.Errorf("error handling scheduled event: %v", err)
-			w.logger.Warnf("skipping event scheduled due to failure in checking operation state: %s", scheduledEvent)
-
+			w.logger.Errorf("error handling scheduled event: %v continuing with next event...", err)
 			continue
 		}
 	}
@@ -320,15 +340,13 @@ func (w *WorkerSolana) handleTx(ctx context.Context, tx *rpc.TransactionWithMeta
 		w.logger.Debugf("found event executed: %s", executedEvent.ID)
 		err = w.handleEventExecuted(ctx, executedEvent)
 		if err != nil {
-			w.logger.Errorf("error handling executed event: %v", err)
-			w.logger.Warnf("skipping event executed due to failure in checking operation state: %s", executedEvent)
-
+			w.logger.Errorf("error handling executed event: %v continuing with next event...", err)
 			continue
 		}
 	}
-	for _, bypasserEvent := range timelockEvent.Cancelled {
-		w.logger.Debugf("found event cancelled: %s", bypasserEvent.ID)
-		w.handleEventCancelled(ctx, bypasserEvent)
+	for _, cancellerEvent := range timelockEvent.Cancelled {
+		w.logger.Debugf("found event cancelled: %s continuing with next event...", cancellerEvent.ID)
+		w.handleEventCancelled(ctx, cancellerEvent)
 	}
 
 	return nil

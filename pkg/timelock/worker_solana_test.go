@@ -3,7 +3,6 @@ package timelock
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"sync/atomic"
@@ -23,14 +22,7 @@ type fakeSig struct {
 	Slot      uint64           `json:"slot"`
 }
 
-func mustRandomSignature(t *testing.T) (solana.Signature, string) {
-	var b [64]byte
-	_, err := rand.Read(b[:])
-	require.NoError(t, err)
-	sig := solana.SignatureFromBytes(b[:])
-	return sig, sig.String()
-}
-func TestPollNewSignatures(t *testing.T) {
+func TestStartPolling(t *testing.T) {
 	const (
 		sigStrA = "3n8uFwJjTyBR3UqTGUjMncmzMJkjp7sk6uMvGCazgGNsCJpKaDxnKnUR3XNG2Exz4MyfpNHCEWGu2gZiSGGZVK3c"
 		sigStr1 = "5eJiBS2dDCLdVZSLvXCLCeu3LL8eb9StAFmsDCpMTZZo8QAVDqAxowLqa5Yf2CtuwsAXeodDaUBgb63HGrj8Cxd6"
@@ -109,7 +101,6 @@ func TestPollNewSignatures(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			var sigCalls, txCalls atomic.Int32
 
@@ -158,7 +149,7 @@ func TestPollNewSignatures(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
 
-			done, ch := w.pollNewTransactions(ctx)
+			done, ch := w.StartPolling(ctx)
 			got := 0
 
 		Loop:

@@ -2,6 +2,7 @@ package solana
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/gagliardetto/solana-go"
@@ -47,6 +48,9 @@ func (s *solanaIntegrationTestSuite) TestTimelockWorkerListen() {
 		if !assert.GreaterOrEqual(collect, len(logEntries), 11, "Expected at least 12 log entries") {
 			return
 		}
+		for i, _ := range logEntries {
+			fmt.Println(i, logEntries[i])
+		}
 
 		assert.Equal(collect, logEntries[0].Message, "timelock-worker started [solana]")
 		assert.Equal(collect, logEntries[1].Message, "\tTimelock program:")
@@ -55,10 +59,9 @@ func (s *solanaIntegrationTestSuite) TestTimelockWorkerListen() {
 		assert.Equal(collect, logEntries[4].Message, "\tEvent Listener Poll Period")
 		assert.Equal(collect, logEntries[5].Message, "\tEvent Listener Poll #Logs")
 		assert.Equal(collect, logEntries[6].Message, "nop.runScheduler")
-		assert.Equal(collect, logEntries[7].Message, "starting pollNewTransactions")
-		assert.Contains(collect, logEntries[8].Message, "new pollNewTransactions")
-		assert.Equal(collect, logEntries[9].Message, "found new signatures")
-		assert.Contains(collect, logEntries[10].Message, "found event scheduled:")
-		assert.Contains(collect, logEntries[11].Message, "event received")
+		assert.Equal(collect, logEntries[7].Message, "starting pollSignatures")
+		assert.Contains(collect, logEntries[8].Message, "found event scheduled:")
+		assert.Contains(collect, logEntries[9].Message, "event received")
+		assert.Contains(collect, logEntries[10].Message, "nop.addToScheduler")
 	}, 20*time.Second, 200*time.Millisecond)
 }
