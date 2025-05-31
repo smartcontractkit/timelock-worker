@@ -48,7 +48,7 @@ func (s *solanaIntegrationTestSuite) TestTimelockWorkerListen() {
 		if !assert.GreaterOrEqual(collect, len(logEntries), 11, "Expected at least 12 log entries") {
 			return
 		}
-		for i, _ := range logEntries {
+		for i := range logEntries {
 			fmt.Println(i, logEntries[i])
 		}
 

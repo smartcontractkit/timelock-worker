@@ -105,6 +105,7 @@ func NewTimelockWorkerSolana(
 	} else {
 		tWorker.scheduler = newScheduler(time.Duration(pollPeriod)*time.Second, logger, func(context.Context, []TimelockCallScheduled) {})
 	}
+
 	return tWorker, nil
 }
 
@@ -154,7 +155,7 @@ func (w *WorkerSolana) StartPolling(ctx context.Context) (<-chan struct{}, <-cha
 	sigCh := make(chan solana.Signature, 100)
 
 	go w.pollSignatures(ctx, sigCh, done)
-	go w.loadTransactions(ctx, sigCh, txCh, done)
+	go w.loadTransactions(ctx, sigCh, txCh)
 
 	return done, txCh
 }
@@ -208,8 +209,8 @@ func (w *WorkerSolana) pollSignatures(ctx context.Context, sigCh chan<- solana.S
 	}
 }
 
-// loadTransactions tries getting a tx multiple times
-func (w *WorkerSolana) loadTransactions(ctx context.Context, sigCh <-chan solana.Signature, txCh chan<- *rpc.TransactionWithMeta, done chan struct{}) {
+// loadTransactions tries getting a tx multiple times.
+func (w *WorkerSolana) loadTransactions(ctx context.Context, sigCh <-chan solana.Signature, txCh chan<- *rpc.TransactionWithMeta) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -233,7 +234,7 @@ func (w *WorkerSolana) loadTransactions(ctx context.Context, sigCh <-chan solana
 	}
 }
 
-// errOrDefault returns rpc error or deadline exceeded
+// errOrDefault returns rpc error or deadline exceeded.
 func errOrDefault(err error, resps jsonrpc.RPCResponses) error {
 	if len(resps) > 0 && resps[0].Error != nil {
 		return resps[0].Error
@@ -241,6 +242,7 @@ func errOrDefault(err error, resps jsonrpc.RPCResponses) error {
 	if err != nil {
 		return err
 	}
+
 	return context.DeadlineExceeded
 }
 
@@ -258,6 +260,7 @@ func (w *WorkerSolana) retryGetTransaction(ctx context.Context, sig solana.Signa
 		if err := resps[0].GetObject(&tx); err != nil {
 			return err
 		}
+
 		return nil // success
 	}
 
@@ -270,6 +273,7 @@ func (w *WorkerSolana) retryGetTransaction(ctx context.Context, sig solana.Signa
 		w.logger.Errorw("")
 		return nil, err
 	}
+
 	return tx, nil
 }
 
