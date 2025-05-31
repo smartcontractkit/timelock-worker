@@ -203,10 +203,6 @@ func newTestScheduler() *scheduler {
 // newMockScheduler returns a mock Scheduler with assertion tracking setup
 func newMockScheduler(t *testing.T) *MockScheduler {
 	mockScheduler := NewMockScheduler(t)
-
-	// Example: you can preset mock behavior here if needed
-	// mockScheduler.On("runScheduler", mock.Anything).Return(make(chan struct{}))
-
 	return mockScheduler
 }
 

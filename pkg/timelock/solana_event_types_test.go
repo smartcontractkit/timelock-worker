@@ -5,58 +5,9 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
-	"github.com/mr-tron/base58"
 	"github.com/stretchr/testify/require"
 )
-
-func makeTxWithMeta(t *testing.T, fullJSON string) *rpc.TransactionWithMeta {
-	t.Helper()
-
-	var parsed struct {
-		Result struct {
-			Slot        uint64               `json:"slot"`
-			Meta        *rpc.TransactionMeta `json:"meta"`
-			Transaction struct {
-				Signatures []string       `json:"signatures"`
-				Message    solana.Message `json:"message"`
-			} `json:"transaction"`
-		} `json:"result"`
-	}
-	require.NoError(t, json.Unmarshal([]byte(fullJSON), &parsed))
-
-	// Rebuild transaction
-	tx := &solana.Transaction{
-		Message:    parsed.Result.Transaction.Message,
-		Signatures: make([]solana.Signature, len(parsed.Result.Transaction.Signatures)),
-	}
-	for i, sigStr := range parsed.Result.Transaction.Signatures {
-		sig, err := solana.SignatureFromBase58(sigStr)
-		require.NoError(t, err)
-		tx.Signatures[i] = sig
-	}
-
-	binTx, err := tx.MarshalBinary()
-	require.NoError(t, err)
-
-	// Encode to base58
-	b58 := base58.Encode(binTx)
-
-	// Marshal as JSON string (e.g., `"base58value"`)
-	jsonBz, err := json.Marshal(b58)
-	require.NoError(t, err)
-
-	// Unmarshal into DataBytesOrJSON
-	var txField rpc.DataBytesOrJSON
-	require.NoError(t, json.Unmarshal(jsonBz, &txField))
-
-	return &rpc.TransactionWithMeta{
-		Slot:        parsed.Result.Slot,
-		Meta:        parsed.Result.Meta,
-		Transaction: &txField,
-	}
-}
 
 func TestParseTimelockEvents_CallExecuted(t *testing.T) {
 	const executeBatchTxJSON = `{
