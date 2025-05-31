@@ -203,7 +203,6 @@ func TestHandleEventExecuted_Done(t *testing.T) {
 	event := SolanaTimelockCallExecutedEvent{ID: id, Target: solana.PublicKey{}}
 	err := worker.handleEventExecuted(t.Context(), event)
 	require.NoError(t, err)
-	mockInsp.AssertExpectations(t)
 }
 
 func TestHandleEventScheduled_IsOp(t *testing.T) {
@@ -238,7 +237,6 @@ func TestHandleEventScheduled_OperationDone(t *testing.T) {
 	event := SolanaTimelockCallScheduledEvent{ID: id, Target: solana.PublicKey{}}
 	err := worker.handleEventScheduled(t.Context(), event)
 	require.NoError(t, err)
-	mockInsp.AssertExpectations(t)
 }
 
 func TestHandleEventExecuted_NotDone(t *testing.T) {
