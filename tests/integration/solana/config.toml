@@ -1,0 +1,11 @@
+
+[solana_config]
+chain_id = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG"
+port = "8999"
+type = "solana"
+public_key ="9n1pyVGGo6V4mpiSDMVay5As9NurEkY283wwRk1Kto2C"
+
+[solana_config.solana_programs]
+timelock = "DoajfR5tK24xVw51fWcawUZWhAXD8yrBJVacc13neVQA"
+external_program_cpi_stub = "2zZwzyptLqwFJFEFxjPvrdhiGpH9pJ3MfrrmZX6NTKxm"
+access_controller = "6KsN58MTnRQ8FfPaXHiFPPFGDRioikj9CdPvPxZJdCjb"

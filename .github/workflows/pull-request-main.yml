@@ -31,13 +31,49 @@ jobs:
   ci-test:
     name: Tests
     runs-on: ubuntu-latest
+    env:
+      CTF_CONFIGS: /home/runner/work/timelock-worker/timelock-worker/tests/integration/solana/artifacts
     permissions:
       id-token: write
       contents: read
       actions: read
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Compute Solana programs cache key
+        id: solana-programs-cache-key
+        shell: bash
+        run: |
+          key="$(go list -m github.com/smartcontractkit/chainlink-ccip/chains/solana)"
+          echo "key=${key}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust
+        if: steps.solana-programs-cache-key.outputs.cache-hit != 'true'
+        uses: moonrepo/setup-rust@ede6de059f8046a5e236c94046823e2af11ca670 # v1.2.2
+
+      - name: Install Solana
+        if: steps.solana-programs-cache-key.outputs.cache-hit != 'true'
+        uses: metaplex-foundation/actions/install-solana@2389940047edc63a5781911f6a53fbdf784748d8 # v1.0.4
+        with:
+          version: 1.18.26
+
+      - name: Cache Solana programs
+        uses: actions/cache@v4
+        id: cache-solana-programs
+        with:
+          path: ./tests/integration/solana/artifacts
+          key: "${{ runner.os }}-mcms-contracts-${{ steps.solana-programs-cache-key.outputs.key }}"
+
+      - name: Build Solana programs
+        if: steps.solana-programs-cache-key.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          ./tests/integration/solana/compile-timelock-programs.sh
+
       - name: Build and test
         uses: smartcontractkit/.github/actions/ci-test-go@ci-test-go/0.3.5
         with:
-          go-test-cmd: go test -short -coverprofile=coverage.out -covermode=atomic -race ./...
+          go-test-cmd: CTF_CONFIGS=./config.toml go test -short -coverprofile=coverage.out -covermode=atomic -race ./...
+          checkout-repo: false
           use-go-cache: true

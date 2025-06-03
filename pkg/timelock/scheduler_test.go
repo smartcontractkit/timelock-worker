@@ -200,6 +200,12 @@ func newTestScheduler() *scheduler {
 	return newScheduler(10*time.Second, logger, execFn)
 }
 
+// newMockScheduler returns a mock Scheduler with assertion tracking setup
+func newMockScheduler(t *testing.T) *MockScheduler {
+	mockScheduler := NewMockScheduler(t)
+	return mockScheduler
+}
+
 // generateOpKeys generates a slice of operation keys from a slice of strings.
 func generateOpKeys(t *testing.T, in []string) [][32]byte {
 	t.Helper()

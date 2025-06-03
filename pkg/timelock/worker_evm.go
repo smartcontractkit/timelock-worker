@@ -595,5 +595,5 @@ func (tw *WorkerEVM) startLog() {
 	tw.logger.Infof("\tStarting from block: %v", tw.fromBlock)
 	tw.logger.Infof("\tPoll Period: %v", time.Duration(tw.pollPeriod*int64(time.Second)).String())
 	tw.logger.Infof("\tEvent Listener Poll Period: %v", time.Duration(tw.listenerPollPeriod*int64(time.Second)).String())
-	tw.logger.Infof("\tEvent Listener Poll # Logs%v", tw.pollSize)
+	tw.logger.Infof("\tEvent Listener Poll # Logs: %v", tw.pollSize)
 }

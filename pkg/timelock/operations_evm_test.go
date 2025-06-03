@@ -14,9 +14,11 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 	contracts "github.com/smartcontractkit/ccip-owner-contracts/gethwrappers"
+
 	"github.com/smartcontractkit/timelock-worker/pkg/timelock/mocks"
 	test_contracts "github.com/smartcontractkit/timelock-worker/tests/contracts"
-	"github.com/smartcontractkit/timelock-worker/tests/integration"
+	"github.com/smartcontractkit/timelock-worker/tests/integration/evm"
+
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
@@ -26,8 +28,8 @@ func Test_is_methods(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	account := integration.NewTestAccount(t)
-	backend := integration.NewSimulatedBackend(t, types.GenesisAlloc{
+	account := evm.NewTestAccount(t)
+	backend := evm.NewSimulatedBackend(t, types.GenesisAlloc{
 		account.Address: types.Account{Balance: big.NewInt(1e18)},
 	})
 
@@ -37,10 +39,10 @@ func Test_is_methods(t *testing.T) {
 	transactor, err := bind.NewKeyedTransactorWithChainID(account.PrivateKey, chainID)
 	require.NoError(t, err)
 
-	_, _, _, timelockContract := integration.DeployTimelock(t, ctx, transactor,
+	_, _, _, timelockContract := evm.DeployTimelock(t, ctx, transactor,
 		backend, account.Address, big.NewInt(1))
 
-	storageAddress, _, _, _ := integration.DeployStorage(t, ctx, transactor, backend)
+	storageAddress, _, _, _ := evm.DeployStorage(t, ctx, transactor, backend)
 
 	predecessor := [32]byte{}
 	salt := [32]byte{}
@@ -53,7 +55,7 @@ func Test_is_methods(t *testing.T) {
 	t.Logf("operation id: %v", hexutil.Encode(operationId[:]))
 
 	// --- act ---
-	integration.ScheduleBatch(t, ctx, transactor, backend, timelockContract, calls,
+	evm.ScheduleBatch(t, ctx, transactor, backend, timelockContract, calls,
 		predecessor, salt, big.NewInt(1))
 
 	// --- assert ---
@@ -69,7 +71,7 @@ func Test_is_methods(t *testing.T) {
 	requireEqual(t, false)(isDone(ctx, timelockContract, operationId))
 
 	// execute then check isDone again
-	integration.ExecuteBatch(t, ctx, transactor, backend, timelockContract, calls,
+	evm.ExecuteBatch(t, ctx, transactor, backend, timelockContract, calls,
 		predecessor, salt)
 	requireEqual(t, true)(isDone(ctx, timelockContract, operationId))
 	requireEqual(t, false)(isPending(ctx, timelockContract, operationId))
@@ -116,7 +118,7 @@ func Test_retries(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	account := integration.NewTestAccount(t)
+	account := evm.NewTestAccount(t)
 	auth, err := bind.NewKeyedTransactorWithChainID(account.PrivateKey, big.NewInt(1337))
 	require.NoError(t, err)
 

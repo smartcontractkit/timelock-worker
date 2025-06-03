@@ -1,235 +1,288 @@
+// timelock/poll_signatures_test.go
 package timelock
 
 import (
 	"context"
-	"math/big"
+	"encoding/json"
+	"errors"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
+	"github.com/smartcontractkit/mcms/sdk/mocks"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zaptest/observer"
 )
 
-func TestNewTimelockWorkerSolana(t *testing.T) {
-	// prepare keypair
-	priv, err := solana.NewRandomPrivateKey()
-	require.NoError(t, err)
-	privStr := priv.String()
-	pubStr := priv.PublicKey().String()
+// fakeSig is just enough of TransactionSignature to satisfy getSignaturesForAddress.
+type fakeSig struct {
+	Signature solana.Signature `json:"signature"`
+	Slot      uint64           `json:"slot"`
+}
 
-	fromBlock := big.NewInt(0)
-	logger := zap.NewNop().Sugar()
+func assertExpectedTransactions(t *testing.T, ch <-chan *rpc.TransactionWithMeta, done <-chan struct{}, ctx context.Context, want []map[string]any) int {
+	t.Helper()
+	got := 0
 
-	tests := []struct {
-		name            string
-		nodeURL         string
-		timelockAddress string
-		privateKey      string
-		fromBlock       *big.Int
-		pollPeriod      int64
-		listenerPoll    int64
-		pollSize        uint64
-		dryRun          bool
-		errContains     string
-		want            func(t *testing.T, w *WorkerSolana, err error)
+	for {
+		select {
+		case tx, ok := <-ch:
+			if !ok {
+				return got
+			}
+			got++
+			raw, err := json.Marshal(tx.Transaction)
+			require.NoError(t, err)
+
+			var parsed struct {
+				Signatures []string `json:"signatures"`
+			}
+			require.NoError(t, json.Unmarshal(raw, &parsed))
+
+			exp := want[len(want)-got]["transaction"].(map[string]any)["signatures"].([]string)
+			require.Equal(t, exp, parsed.Signatures)
+
+		case <-done:
+			return got
+		case <-ctx.Done():
+			return got
+		}
+	}
+}
+
+func TestStartPolling(t *testing.T) {
+	const (
+		sigStrA = "3n8uFwJjTyBR3UqTGUjMncmzMJkjp7sk6uMvGCazgGNsCJpKaDxnKnUR3XNG2Exz4MyfpNHCEWGu2gZiSGGZVK3c"
+		sigStr1 = "5eJiBS2dDCLdVZSLvXCLCeu3LL8eb9StAFmsDCpMTZZo8QAVDqAxowLqa5Yf2CtuwsAXeodDaUBgb63HGrj8Cxd6"
+		sigStr2 = "2oCj3DD8iZ5YBJ7UbYiY2EM2kJrd1uPTftDbLbZbLmx1ybHJn2dcWxF9PPCfjVkTh2vYpGNP7dXZG74w4jHTHGSE"
+	)
+	var (
+		sigA = solana.MustSignatureFromBase58(sigStrA)
+		sig1 = solana.MustSignatureFromBase58(sigStr1)
+		sig2 = solana.MustSignatureFromBase58(sigStr2)
+	)
+	cases := []struct {
+		name               string
+		signaturesResponse []fakeSig
+		txResponses        []map[string]any
+		wantTxCount        int
 	}{
-		// happy path
 		{
-			name:            "valid HTTP",
-			nodeURL:         "https://example.com",
-			timelockAddress: pubStr,
-			privateKey:      privStr,
-			fromBlock:       fromBlock,
-			pollPeriod:      5,
-			listenerPoll:    5,
-			pollSize:        10,
-			dryRun:          true,
-			want: func(t *testing.T, w *WorkerSolana, err error) {
-				require.NoError(t, err)
-				require.NotNil(t, w)
-				require.Equal(t, int64(5), w.pollPeriod)
-				require.Equal(t, int64(5), w.listenerPollPeriod)
-				require.Equal(t, uint64(10), w.pollSize)
-				require.True(t, w.dryRun)
-				expectedPk, _ := solana.PublicKeyFromBase58(pubStr)
-				require.True(t, expectedPk.Equals(w.timelockProgramKey))
-				require.Equal(t, privStr, w.privateKey.String())
-				require.Nil(t, w.scheduler)
-			},
-		},
-		// error cases
-		{
-			name:            "invalid URL syntax",
-			nodeURL:         "://bad",
-			timelockAddress: pubStr,
-			privateKey:      privStr,
-			fromBlock:       fromBlock,
-			pollPeriod:      1,
-			listenerPoll:    1,
-			pollSize:        1,
-			dryRun:          false,
-			errContains:     "parse \"://bad\"",
-			want: func(t *testing.T, w *WorkerSolana, err error) {
-				require.Error(t, err)
-				require.Contains(t, err.Error(), "parse \"://bad\": missing protocol scheme")
-				require.Nil(t, w)
-			},
+			name:               "no new signatures",
+			signaturesResponse: nil,
+			txResponses:        nil,
+			wantTxCount:        0,
 		},
 		{
-			name:            "unsupported scheme",
-			nodeURL:         "ftp://example.com",
-			timelockAddress: pubStr,
-			privateKey:      privStr,
-			fromBlock:       fromBlock,
-			pollPeriod:      1,
-			listenerPoll:    1,
-			pollSize:        1,
-			dryRun:          false,
-			errContains:     "invalid node URL",
-			want: func(t *testing.T, w *WorkerSolana, err error) {
-				require.Error(t, err)
-				require.Contains(t, err.Error(), "invalid node URL")
-				require.Nil(t, w)
-			},
+			name:               "single signature => single tx",
+			signaturesResponse: []fakeSig{{Signature: sigA, Slot: 10}},
+			txResponses: []map[string]any{{
+				"slot": 10,
+				"transaction": map[string]any{
+					"signatures": []string{sigStrA},
+					"message": map[string]any{
+						"accountKeys":  []string{"A"},
+						"header":       map[string]any{"numRequiredSignatures": 1, "numReadonlySignedAccounts": 0, "numReadonlyUnsignedAccounts": 0},
+						"instructions": []any{},
+					},
+				},
+				"meta": map[string]any{},
+			}},
+			wantTxCount: 1,
 		},
 		{
-			name:            "invalid timelock address",
-			nodeURL:         "http://example.com",
-			timelockAddress: "notBase58",
-			privateKey:      privStr,
-			fromBlock:       fromBlock,
-			pollPeriod:      1,
-			listenerPoll:    1,
-			pollSize:        1,
-			dryRun:          false,
-			errContains:     "timelock addresses provided is not valid",
-			want: func(t *testing.T, w *WorkerSolana, err error) {
-				require.Error(t, err)
-				require.Contains(t, err.Error(), "timelock addresses provided is not valid")
-				require.Nil(t, w)
+			name:               "multiple signatures => multiple txs",
+			signaturesResponse: []fakeSig{{Signature: sig1, Slot: 5}, {Signature: sig2, Slot: 6}},
+			txResponses: []map[string]any{
+				{
+					"slot": 5,
+					"transaction": map[string]any{
+						"signatures": []string{sigStr1},
+						"message": map[string]any{
+							"accountKeys":  []string{"A"},
+							"header":       map[string]any{"numRequiredSignatures": 1, "numReadonlySignedAccounts": 0, "numReadonlyUnsignedAccounts": 0},
+							"instructions": []any{},
+						},
+					},
+					"meta": map[string]any{},
+				},
+				{
+					"slot": 6,
+					"transaction": map[string]any{
+						"signatures": []string{sigStr2},
+						"message": map[string]any{
+							"accountKeys":  []string{"B"},
+							"header":       map[string]any{"numRequiredSignatures": 1, "numReadonlySignedAccounts": 0, "numReadonlyUnsignedAccounts": 0},
+							"instructions": []any{},
+						},
+					},
+					"meta": map[string]any{},
+				},
 			},
-		},
-		{
-			name:            "negative pollPeriod",
-			nodeURL:         "http://example.com",
-			timelockAddress: pubStr,
-			privateKey:      privStr,
-			fromBlock:       fromBlock,
-			pollPeriod:      0,
-			listenerPoll:    1,
-			pollSize:        1,
-			dryRun:          false,
-			errContains:     "poll-period must be a positive non-zero integer",
-			want: func(t *testing.T, w *WorkerSolana, err error) {
-				require.Error(t, err)
-				require.Contains(t, err.Error(), "poll-period must be a positive non-zero integer")
-				require.Nil(t, w)
-			},
-		},
-		{
-			name:            "zero listenerPoll on HTTP",
-			nodeURL:         "https://example.com",
-			timelockAddress: pubStr,
-			privateKey:      privStr,
-			fromBlock:       fromBlock,
-			pollPeriod:      1,
-			listenerPoll:    0,
-			pollSize:        1,
-			dryRun:          false,
-			errContains:     "event-listener-poll-period must be a positive non-zero integer",
-			want: func(t *testing.T, w *WorkerSolana, err error) {
-				require.Error(t, err)
-				require.Contains(t, err.Error(), "event-listener-poll-period must be a positive non-zero integer")
-				require.Nil(t, w)
-			},
-		},
-		{
-			name:            "zero pollSize on HTTP",
-			nodeURL:         "http://example.com",
-			timelockAddress: pubStr,
-			privateKey:      privStr,
-			fromBlock:       fromBlock,
-			pollPeriod:      1,
-			listenerPoll:    1,
-			pollSize:        0,
-			dryRun:          false,
-			errContains:     "event-listener-poll-size must be a positive non-zero integer",
-			want: func(t *testing.T, w *WorkerSolana, err error) {
-				require.Error(t, err)
-				require.Contains(t, err.Error(), "event-listener-poll-size must be a positive non-zero integer")
-				require.Nil(t, w)
-			},
-		},
-		{
-			name:            "invalid private key",
-			nodeURL:         "http://example.com",
-			timelockAddress: pubStr,
-			privateKey:      "notBase58",
-			fromBlock:       fromBlock,
-			pollPeriod:      1,
-			listenerPoll:    1,
-			pollSize:        1,
-			dryRun:          false,
-			errContains:     "the provided private key is not valid",
-			want: func(t *testing.T, w *WorkerSolana, err error) {
-				require.Error(t, err)
-				require.Contains(t, err.Error(), "the provided private key is not valid")
-				require.Nil(t, w)
-			},
+			wantTxCount: 2,
 		},
 	}
 
-	for _, tc := range tests {
+	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			w, err := NewTimelockWorkerSolana(
-				tc.nodeURL,
-				tc.timelockAddress,
-				tc.privateKey,
-				tc.fromBlock,
-				tc.pollPeriod,
-				tc.listenerPoll,
-				tc.pollSize,
-				tc.dryRun,
-				logger,
-			)
-			tc.want(t, w, err)
+			var sigCalls, txCalls atomic.Int32
+
+			mockRPC := NewMockSolanaRPC(t, func(req rpcRequestSolana) (any, error) {
+				switch req.Method {
+				case "getSignaturesForAddress":
+					sigCalls.Add(1)
+					return tc.signaturesResponse, nil
+				case "getTransaction":
+					txCalls.Add(1)
+					var sigStr string
+					require.NoError(t, json.Unmarshal(req.Params[0], &sigStr))
+					for i, fs := range tc.signaturesResponse {
+						if fs.Signature.String() == sigStr {
+							return tc.txResponses[i], nil
+						}
+					}
+					t.Fatalf("signature %s not found in signatures response", sigStr)
+					return nil, nil
+				default:
+					t.Fatalf("unexpected method %s", req.Method)
+					return nil, nil
+				}
+			})
+			defer mockRPC.Close()
+
+			client := rpc.New(mockRPC.URL)
+			timelockKey, err := solana.NewRandomPrivateKey()
+			require.NoError(t, err)
+
+			w := &WorkerSolana{
+				logger:             testLogger,
+				solanaClient:       client,
+				timelockProgramKey: timelockKey.PublicKey(),
+				pollPeriod:         1,
+				pollSize:           len(tc.signaturesResponse) + 1,
+			}
+
+			ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+			defer cancel()
+
+			done, ch := w.startPolling(ctx)
+
+			got := assertExpectedTransactions(t, ch, done, ctx, tc.txResponses)
+
+			require.GreaterOrEqual(t, sigCalls.Load(), int32(1), "should call getSignaturesForAddress")
+			require.GreaterOrEqual(t, txCalls.Load(), int32(len(tc.signaturesResponse)), "should call getTransaction")
+			require.Equal(t, tc.wantTxCount, got, "received tx count")
 		})
 	}
 }
 
-func TestListen_PanicAndLogs(t *testing.T) {
-	core, recorded := observer.New(zap.InfoLevel)
-	logger := zap.New(core).Sugar()
-
-	client := rpc.New("http://example.com")
-	programKey, err := solana.PublicKeyFromBase58("11111111111111111111111111111111")
-	require.NoError(t, err)
-	priv, err := solana.NewRandomPrivateKey()
-	require.NoError(t, err)
-
-	w := &WorkerSolana{
-		solanaClient:       client,
-		timelockProgramKey: programKey,
-		pollPeriod:         3,
-		listenerPollPeriod: 4,
-		pollSize:           5,
-		dryRun:             false,
-		logger:             logger,
-		privateKey:         priv,
-		lastSignature:      nil,
+func TestHandleEventCancelled(t *testing.T) {
+	id := [32]byte{1, 2, 3}
+	s := newMockScheduler(t)
+	worker := &WorkerSolana{
+		logger:    testLogger,
+		scheduler: s,
 	}
+	s.On("delFromScheduler", mock.Anything).Return(nil)
+	worker.handleEventCancelled(t.Context(), SolanaTimelockCallCancelledEvent{ID: id})
+}
 
-	require.Panics(t, func() {
-		_ = w.Listen(context.Background())
-	})
+func TestHandleEventExecuted_Done(t *testing.T) {
+	id := [32]byte{4, 5, 6}
+	mockInsp := new(mocks.TimelockInspector)
+	mockInsp.On("IsOperationDone", mock.Anything, "some.addr", id).Return(true, nil)
+	s := newMockScheduler(t)
+	worker := &WorkerSolana{
+		timelockFullAddress: "some.addr",
+		inspector:           mockInsp,
+		scheduler:           s,
+		logger:              testLogger,
+	}
+	s.On("delFromScheduler", mock.Anything).Return(nil)
+	event := SolanaTimelockCallExecutedEvent{ID: id, Target: solana.PublicKey{}}
+	err := worker.handleEventExecuted(t.Context(), event)
+	require.NoError(t, err)
+}
 
-	logs := recorded.All()
-	require.GreaterOrEqual(t, len(logs), 5)
-	require.Equal(t, "timelock-worker started [solana]", logs[0].Message)
-	require.Contains(t, logs[1].Message, w.timelockProgramKey.String())
-	require.Contains(t, logs[2].Message, "Solana account address:")
-	require.Contains(t, logs[3].Message, "Poll Period:")
-	require.Contains(t, logs[4].Message, "Event Listener Poll Period:")
+func TestHandleEventScheduled_IsOp(t *testing.T) {
+	id := [32]byte{7, 8, 9}
+	mockInsp := new(mocks.TimelockInspector)
+	mockInsp.On("IsOperationDone", mock.Anything, "some.addr", id).Return(false, nil)
+	mockInsp.On("IsOperation", mock.Anything, "some.addr", id).Return(true, nil)
+	s := newMockScheduler(t)
+	worker := &WorkerSolana{
+		timelockFullAddress: "some.addr",
+		inspector:           mockInsp,
+		scheduler:           s,
+		logger:              testLogger,
+	}
+	s.On("addToScheduler", mock.Anything).Return(nil)
+	event := SolanaTimelockCallScheduledEvent{ID: id, Target: solana.PublicKey{}}
+	err := worker.handleEventScheduled(t.Context(), event)
+	require.NoError(t, err)
+}
+
+func TestHandleEventScheduled_OperationDone(t *testing.T) {
+	id := [32]byte{10, 11, 12}
+	mockInsp := new(mocks.TimelockInspector)
+	mockInsp.On("IsOperationDone", mock.Anything, "some.addr", id).Return(true, nil)
+
+	worker := &WorkerSolana{
+		timelockFullAddress: "some.addr",
+		inspector:           mockInsp,
+		scheduler:           newMockScheduler(t),
+		logger:              testLogger,
+	}
+	event := SolanaTimelockCallScheduledEvent{ID: id, Target: solana.PublicKey{}}
+	err := worker.handleEventScheduled(t.Context(), event)
+	require.NoError(t, err)
+}
+
+func TestHandleEventExecuted_NotDone(t *testing.T) {
+	id := [32]byte{13, 14, 15}
+	mockInsp := new(mocks.TimelockInspector)
+	mockInsp.On("IsOperationDone", mock.Anything, "some.addr", id).Return(false, nil)
+
+	worker := &WorkerSolana{
+		timelockFullAddress: "some.addr",
+		inspector:           mockInsp,
+		scheduler:           newMockScheduler(t),
+		logger:              testLogger,
+	}
+	event := SolanaTimelockCallExecutedEvent{ID: id, Target: solana.PublicKey{}}
+	err := worker.handleEventExecuted(t.Context(), event)
+	require.NoError(t, err)
+}
+
+func TestHandleEventScheduled_IsOp_Error(t *testing.T) {
+	id := [32]byte{16, 17, 18}
+	mockInsp := new(mocks.TimelockInspector)
+	mockInsp.On("IsOperationDone", mock.Anything, "some.addr", id).Return(false, nil)
+	mockInsp.On("IsOperation", mock.Anything, "some.addr", id).Return(false, errors.New("boom"))
+
+	worker := &WorkerSolana{
+		timelockFullAddress: "some.addr",
+		inspector:           mockInsp,
+		scheduler:           newMockScheduler(t),
+		logger:              testLogger,
+	}
+	event := SolanaTimelockCallScheduledEvent{ID: id, Target: solana.PublicKey{}}
+	require.ErrorContains(t, worker.handleEventScheduled(t.Context(), event), "timelock.isOperation call failed")
+}
+
+func TestHandleEventExecuted_Error(t *testing.T) {
+	id := [32]byte{19, 20, 21}
+	mockInsp := new(mocks.TimelockInspector)
+	mockInsp.On("IsOperationDone", mock.Anything, "some.addr", id).Return(false, errors.New("bad state"))
+
+	worker := &WorkerSolana{
+		timelockFullAddress: "some.addr",
+		inspector:           mockInsp,
+		scheduler:           newMockScheduler(t),
+		logger:              testLogger,
+	}
+	event := SolanaTimelockCallExecutedEvent{ID: id, Target: solana.PublicKey{}}
+	require.ErrorContains(t, worker.handleEventExecuted(t.Context(), event), "timelock.isOperationDone call failed")
 }

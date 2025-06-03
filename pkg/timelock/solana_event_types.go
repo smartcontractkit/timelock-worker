@@ -57,7 +57,7 @@ type SolanaTimelockCallCancelledEvent struct {
 
 // ParseTimelockEvents extracts and decodes Anchor events from tx.Meta.LogMessages.
 func ParseTimelockEvents(tx *rpc.TransactionWithMeta) (*SolanaTimelockEvents, error) {
-	solanaTx, err := tx.GetParsedTransaction()
+	solanaTx, err := tx.GetTransaction()
 	if err != nil {
 		return nil, fmt.Errorf("unable to get solana transaction: %w", err)
 	}

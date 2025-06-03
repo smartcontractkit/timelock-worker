@@ -11,6 +11,8 @@ const (
 	eventCancelled      string = "Cancelled"
 	eventMinDelayChange string = "MinDelayChange"
 
+	eventIndex       string = "Event Index"
+	eventTarget      string = "Event Target"
 	fieldTXHash      string = "TX Hash"
 	fieldBlockNumber string = "Block Number"
 	operationID      string = "Operation ID"
