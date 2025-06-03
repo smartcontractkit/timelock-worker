@@ -120,7 +120,7 @@ func (w *WorkerSolana) Listen(ctx context.Context) error {
 	schedulingDone := w.scheduler.runScheduler(ctxwc)
 
 	//// Retrieve logs asynchronously.
-	pollDone, txCh := w.StartPolling(ctxwc)
+	pollDone, txCh := w.startPolling(ctxwc)
 
 	// Start processing transactions
 	procDone := w.processTransactions(ctxwc, txCh)
@@ -148,7 +148,7 @@ func (w *WorkerSolana) Listen(ctx context.Context) error {
 	return nil
 }
 
-func (w *WorkerSolana) StartPolling(ctx context.Context) (<-chan struct{}, <-chan *rpc.TransactionWithMeta) {
+func (w *WorkerSolana) startPolling(ctx context.Context) (<-chan struct{}, <-chan *rpc.TransactionWithMeta) {
 	done := make(chan struct{})
 	txCh := make(chan *rpc.TransactionWithMeta, w.pollSize)
 	sigCh := make(chan solana.Signature, 100)

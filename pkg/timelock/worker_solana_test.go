@@ -166,7 +166,7 @@ func TestStartPolling(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 			defer cancel()
 
-			done, ch := w.StartPolling(ctx)
+			done, ch := w.startPolling(ctx)
 
 			got := assertExpectedTransactions(t, ch, done, ctx, tc.txResponses)
 
