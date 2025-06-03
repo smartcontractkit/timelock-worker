@@ -143,6 +143,7 @@ func TestStartPolling(t *testing.T) {
 							return tc.txResponses[i], nil
 						}
 					}
+					t.Fatalf("signature %s not found in signatures response", sigStr)
 					return nil, nil
 				default:
 					t.Fatalf("unexpected method %s", req.Method)
