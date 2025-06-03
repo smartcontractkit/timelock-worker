@@ -233,16 +233,12 @@ func (w *WorkerSolana) loadTransactions(ctx context.Context, sigCh <-chan solana
 	}
 }
 
-// errOrDefault returns rpc error or deadline exceeded.
-func errOrDefault(err error, resps jsonrpc.RPCResponses) error {
+// rpcErrorOrDefault returns rpc error.
+func rpcErrorOrDefault(err error, resps jsonrpc.RPCResponses) error {
 	if len(resps) > 0 && resps[0].Error != nil {
 		return resps[0].Error
 	}
-	if err != nil {
-		return err
-	}
-
-	return context.DeadlineExceeded
+	return err
 }
 
 func (w *WorkerSolana) retryGetTransaction(ctx context.Context, sig solana.Signature) (*rpc.TransactionWithMeta, error) {
@@ -252,7 +248,7 @@ func (w *WorkerSolana) retryGetTransaction(ctx context.Context, sig solana.Signa
 		req := jsonrpc.NewRequest("getTransaction", sig, &rpc.GetTransactionOpts{Encoding: solana.EncodingBase58})
 		resps, err := w.solanaClient.RPCCallBatch(ctx, jsonrpc.RPCRequests{req})
 		if err != nil || len(resps) == 0 || resps[0].Error != nil {
-			return errOrDefault(err, resps)
+			return rpcErrorOrDefault(err, resps)
 		}
 
 		tx = new(rpc.TransactionWithMeta)
