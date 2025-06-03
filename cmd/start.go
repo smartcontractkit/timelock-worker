@@ -6,6 +6,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	solana2 "github.com/gagliardetto/solana-go"
+	"github.com/gagliardetto/solana-go/rpc"
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/mcms/sdk/solana"
 	"github.com/spf13/cobra"
@@ -145,7 +146,22 @@ func startTimelock(cmd *cobra.Command) {
 			slog.Fatalf("error while starting timelock-worker: %s", err.Error())
 		}
 	} else if chainFamily == chain_selectors.FamilySolana {
-		slog.Infof("Solana chain family is not supported yet")
+		tWorker, err := timelock.NewTimelockWorkerSolana(nodeURL,
+			timelockAddress,
+			privateKey,
+			pollPeriod,
+			eventListenerPollPeriod,
+			int(eventListenerPollSize), // #nosec G115
+			dryRun,
+			rpc.CommitmentFinalized,
+			slog)
+		if err != nil {
+			slog.Fatalf("error creating the timelock-worker: %s", err.Error())
+		}
+
+		if err := tWorker.Listen(context.Background()); err != nil {
+			slog.Fatalf("error while starting timelock-worker: %s", err.Error())
+		}
 	} else {
 		slog.Fatalf("unsupported chain family: %s", chainFamily)
 	}

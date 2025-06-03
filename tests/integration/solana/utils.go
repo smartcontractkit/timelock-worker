@@ -184,12 +184,13 @@ func runTimelockWorkerSolana(
 	pollPeriod, listenerPollPeriod int64,
 	listenerPollSize int,
 	dryRun bool,
+	commitmentType rpc.CommitmentType,
 	logger *zap.Logger,
 ) {
 	t.Helper()
 
 	t.Logf("TimelockWorker.Listen(%v, %v, %v, %v, %v, %v)", nodeURL, timelockAddress, privateKey, pollPeriod, listenerPollPeriod, listenerPollSize)
-	timelockWorker, err := timelock.NewTimelockWorkerSolana(nodeURL, timelockAddress, privateKey, pollPeriod, listenerPollPeriod, listenerPollSize, dryRun, logger.Sugar())
+	timelockWorker, err := timelock.NewTimelockWorkerSolana(nodeURL, timelockAddress, privateKey, pollPeriod, listenerPollPeriod, listenerPollSize, dryRun, commitmentType, logger.Sugar())
 	require.NoError(t, err)
 	require.NotNil(t, timelockWorker)
 

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gagliardetto/solana-go"
+	"github.com/gagliardetto/solana-go/rpc"
 	e2eutils "github.com/smartcontractkit/mcms/e2e/utils/solana"
 	solanasdk "github.com/smartcontractkit/mcms/sdk/solana"
 	"github.com/stretchr/testify/assert"
@@ -41,6 +42,7 @@ func (s *solanaIntegrationTestSuite) TestTimelockWorkerListen() {
 		int64(1),
 		10,
 		true,
+		rpc.CommitmentConfirmed,
 		logger)
 
 	s.EventuallyWithT(func(collect *assert.CollectT) {

@@ -36,6 +36,7 @@ type WorkerSolana struct {
 	privateKey          solana.PrivateKey
 	lastSignature       *solana.Signature // last signature processed
 	scheduler           Scheduler
+	commitmentType      rpc.CommitmentType
 }
 
 // NewTimelockWorkerSolana initializes and returns a timelockWorker.
@@ -47,6 +48,7 @@ func NewTimelockWorkerSolana(
 	listenerPollPeriod int64,
 	pollSize int,
 	dryRun bool,
+	commitmentType rpc.CommitmentType,
 	logger *zap.SugaredLogger,
 ) (*WorkerSolana, error) {
 	var privateKeySolana solana.PrivateKey
@@ -97,6 +99,7 @@ func NewTimelockWorkerSolana(
 		dryRun:              dryRun,
 		logger:              logger,
 		privateKey:          privateKeySolana,
+		commitmentType:      commitmentType,
 	}
 
 	if dryRun {
@@ -183,8 +186,9 @@ func (w *WorkerSolana) pollSignatures(ctx context.Context, sigCh chan<- solana.S
 				ctx,
 				w.timelockProgramKey,
 				&rpc.GetSignaturesForAddressOpts{
-					Limit: &w.pollSize,
-					Until: until,
+					Limit:      &w.pollSize,
+					Until:      until,
+					Commitment: w.commitmentType,
 				},
 			)
 			if err != nil {
@@ -238,6 +242,7 @@ func rpcErrorOrDefault(err error, resps jsonrpc.RPCResponses) error {
 	if len(resps) > 0 && resps[0].Error != nil {
 		return resps[0].Error
 	}
+
 	return err
 }
 
@@ -245,7 +250,7 @@ func (w *WorkerSolana) retryGetTransaction(ctx context.Context, sig solana.Signa
 	var tx *rpc.TransactionWithMeta
 
 	operation := func() error {
-		req := jsonrpc.NewRequest("getTransaction", sig, &rpc.GetTransactionOpts{Encoding: solana.EncodingBase58})
+		req := jsonrpc.NewRequest("getTransaction", sig, &rpc.GetTransactionOpts{Encoding: solana.EncodingBase58, Commitment: w.commitmentType})
 		resps, err := w.solanaClient.RPCCallBatch(ctx, jsonrpc.RPCRequests{req})
 		if err != nil || len(resps) == 0 || resps[0].Error != nil {
 			return rpcErrorOrDefault(err, resps)
