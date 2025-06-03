@@ -22,7 +22,7 @@ type fakeSig struct {
 	Slot      uint64           `json:"slot"`
 }
 
-func assertExpectedTransactions(t *testing.T, ch <-chan *rpc.TransactionWithMeta, done <-chan struct{}, ctx context.Context, want []map[string]interface{}) int {
+func assertExpectedTransactions(t *testing.T, ch <-chan *rpc.TransactionWithMeta, done <-chan struct{}, ctx context.Context, want []map[string]any) int {
 	t.Helper()
 	got := 0
 
@@ -41,7 +41,7 @@ func assertExpectedTransactions(t *testing.T, ch <-chan *rpc.TransactionWithMeta
 			}
 			require.NoError(t, json.Unmarshal(raw, &parsed))
 
-			exp := want[len(want)-got]["transaction"].(map[string]interface{})["signatures"].([]string)
+			exp := want[len(want)-got]["transaction"].(map[string]any)["signatures"].([]string)
 			require.Equal(t, exp, parsed.Signatures)
 
 		case <-done:
@@ -66,7 +66,7 @@ func TestStartPolling(t *testing.T) {
 	cases := []struct {
 		name               string
 		signaturesResponse []fakeSig
-		txResponses        []map[string]interface{}
+		txResponses        []map[string]any
 		wantTxCount        int
 	}{
 		{
@@ -78,47 +78,47 @@ func TestStartPolling(t *testing.T) {
 		{
 			name:               "single signature => single tx",
 			signaturesResponse: []fakeSig{{Signature: sigA, Slot: 10}},
-			txResponses: []map[string]interface{}{{
+			txResponses: []map[string]any{{
 				"slot": 10,
-				"transaction": map[string]interface{}{
+				"transaction": map[string]any{
 					"signatures": []string{sigStrA},
-					"message": map[string]interface{}{
+					"message": map[string]any{
 						"accountKeys":  []string{"A"},
-						"header":       map[string]interface{}{"numRequiredSignatures": 1, "numReadonlySignedAccounts": 0, "numReadonlyUnsignedAccounts": 0},
-						"instructions": []interface{}{},
+						"header":       map[string]any{"numRequiredSignatures": 1, "numReadonlySignedAccounts": 0, "numReadonlyUnsignedAccounts": 0},
+						"instructions": []any{},
 					},
 				},
-				"meta": map[string]interface{}{},
+				"meta": map[string]any{},
 			}},
 			wantTxCount: 1,
 		},
 		{
 			name:               "multiple signatures => multiple txs",
 			signaturesResponse: []fakeSig{{Signature: sig1, Slot: 5}, {Signature: sig2, Slot: 6}},
-			txResponses: []map[string]interface{}{
+			txResponses: []map[string]any{
 				{
 					"slot": 5,
-					"transaction": map[string]interface{}{
+					"transaction": map[string]any{
 						"signatures": []string{sigStr1},
-						"message": map[string]interface{}{
+						"message": map[string]any{
 							"accountKeys":  []string{"A"},
-							"header":       map[string]interface{}{"numRequiredSignatures": 1, "numReadonlySignedAccounts": 0, "numReadonlyUnsignedAccounts": 0},
-							"instructions": []interface{}{},
+							"header":       map[string]any{"numRequiredSignatures": 1, "numReadonlySignedAccounts": 0, "numReadonlyUnsignedAccounts": 0},
+							"instructions": []any{},
 						},
 					},
-					"meta": map[string]interface{}{},
+					"meta": map[string]any{},
 				},
 				{
 					"slot": 6,
-					"transaction": map[string]interface{}{
+					"transaction": map[string]any{
 						"signatures": []string{sigStr2},
-						"message": map[string]interface{}{
+						"message": map[string]any{
 							"accountKeys":  []string{"B"},
-							"header":       map[string]interface{}{"numRequiredSignatures": 1, "numReadonlySignedAccounts": 0, "numReadonlyUnsignedAccounts": 0},
-							"instructions": []interface{}{},
+							"header":       map[string]any{"numRequiredSignatures": 1, "numReadonlySignedAccounts": 0, "numReadonlyUnsignedAccounts": 0},
+							"instructions": []any{},
 						},
 					},
-					"meta": map[string]interface{}{},
+					"meta": map[string]any{},
 				},
 			},
 			wantTxCount: 2,
@@ -129,7 +129,7 @@ func TestStartPolling(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var sigCalls, txCalls atomic.Int32
 
-			mockRPC := NewMockSolanaRPC(t, func(req rpcRequestSolana) (interface{}, error) {
+			mockRPC := NewMockSolanaRPC(t, func(req rpcRequestSolana) (any, error) {
 				switch req.Method {
 				case "getSignaturesForAddress":
 					sigCalls.Add(1)
