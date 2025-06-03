@@ -9,7 +9,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/cenkalti/backoff/v4"
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/gagliardetto/solana-go/rpc/jsonrpc"
@@ -264,13 +263,16 @@ func (w *WorkerSolana) retryGetTransaction(ctx context.Context, sig solana.Signa
 		return nil // success
 	}
 
-	eb := backoff.NewExponentialBackOff()
-	eb.InitialInterval = 1 * time.Second
-	eb.MaxElapsedTime = 8 * time.Second // limit retries
+	tx, err := Retry(ctx, func(ctx context.Context) (*rpc.TransactionWithMeta, error) {
+		err := operation()
+		if err != nil {
+			w.logger.Warnw("Retryable error", "err", err)
+		}
 
-	err := backoff.Retry(operation, backoff.WithContext(eb, ctx))
+		return tx, err
+	})
 	if err != nil {
-		w.logger.Errorw("")
+		w.logger.Errorw("Retry failed", "err", err)
 		return nil, err
 	}
 
