@@ -329,3 +329,73 @@ func (s *solanaIntegrationTestSuite) scheduleTestIx(
 
 	return ixStub, operationID
 }
+
+func (s *solanaIntegrationTestSuite) cancelScheduledIx(
+	timelockID solanasdk.PDASeed,
+	operationID [32]byte,
+) {
+	timelock2.SetProgramID(s.TimelockProgramID)
+
+	operationPDA, err := solanasdk.FindTimelockOperationPDA(s.TimelockProgramID, timelockID, operationID)
+	s.Require().NoError(err)
+
+	configPDA, err := solanasdk.FindTimelockConfigPDA(s.TimelockProgramID, timelockID)
+	s.Require().NoError(err)
+
+	proposerAC := s.RoleMap[timelock2.Proposer_Role].AccessController.PublicKey()
+
+	cancelIx, err := timelock2.NewCancelInstruction(
+		timelockID,
+		operationID,
+		operationPDA,
+		configPDA,
+		proposerAC,
+		s.TestPrivateKey.PublicKey(),
+	).ValidateAndBuild()
+	s.Require().NoError(err)
+
+	res := testutils.SendAndConfirm(s.Ctx, s.T(), s.solanaClient, []solana.Instruction{cancelIx}, s.TestPrivateKey, rpc.CommitmentConfirmed)
+	s.Require().Nil(res.Meta.Err, "Cancellation transaction failed: %v", res.Meta.Err)
+}
+
+func (s *solanaIntegrationTestSuite) executeScheduledIx(
+	timelockID solanasdk.PDASeed,
+	operationID [32]byte,
+	scheduledIx solana.Instruction,
+) {
+	timelock2.SetProgramID(s.TimelockProgramID)
+
+	operationPDA, err := solanasdk.FindTimelockOperationPDA(s.TimelockProgramID, timelockID, operationID)
+	s.Require().NoError(err)
+
+	predecessorOp := solana.PublicKey{} // empty if predecessor is [32]byte{}
+	configPDA, err := solanasdk.FindTimelockConfigPDA(s.TimelockProgramID, timelockID)
+	s.Require().NoError(err)
+
+	timelockSignerPDA, err := solanasdk.FindTimelockSignerPDA(s.TimelockProgramID, timelockID)
+	s.Require().NoError(err)
+
+	proposerAC := s.RoleMap[timelock2.Proposer_Role].AccessController.PublicKey()
+
+	// Build ExecuteBatch instruction with remaining accounts
+	executeIxBuilder := timelock2.NewExecuteBatchInstruction(
+		timelockID,
+		operationID,
+		operationPDA,
+		predecessorOp,
+		configPDA,
+		timelockSignerPDA,
+		proposerAC,
+		s.TestPrivateKey.PublicKey(),
+	)
+
+	executeIxBuilder.Append(&solana.AccountMeta{
+		PublicKey: s.StubProgramID,
+	})
+
+	executeIx, err := executeIxBuilder.ValidateAndBuild()
+	s.Require().NoError(err)
+
+	res := testutils.SendAndConfirm(s.Ctx, s.T(), s.solanaClient, []solana.Instruction{executeIx}, s.TestPrivateKey, rpc.CommitmentConfirmed)
+	s.Require().Nil(res.Meta.Err, "Execution transaction failed: %v", res.Meta.Err)
+}

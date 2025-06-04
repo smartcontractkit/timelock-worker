@@ -2,6 +2,7 @@ package timelock
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"net/url"
 	"os/signal"
@@ -336,7 +337,8 @@ func (w *WorkerSolana) handleTx(ctx context.Context, tx *rpc.TransactionWithMeta
 	}
 
 	for _, scheduledEvent := range timelockEvent.Scheduled {
-		w.logger.Debugf("found event scheduled: %s", scheduledEvent.ID)
+		hexID := hex.EncodeToString(scheduledEvent.ID[:])
+		w.logger.Debugf("found event scheduled: %s", hexID)
 		err = w.handleEventScheduled(ctx, scheduledEvent)
 		if err != nil {
 			w.logger.Errorf("error handling scheduled event: %v continuing with next event...", err)
@@ -344,7 +346,8 @@ func (w *WorkerSolana) handleTx(ctx context.Context, tx *rpc.TransactionWithMeta
 		}
 	}
 	for _, executedEvent := range timelockEvent.Executed {
-		w.logger.Debugf("found event executed: %s", executedEvent.ID)
+		hexID := hex.EncodeToString(executedEvent.ID[:])
+		w.logger.Debugf("found event executed: %s", hexID)
 		err = w.handleEventExecuted(ctx, executedEvent)
 		if err != nil {
 			w.logger.Errorf("error handling executed event: %v continuing with next event...", err)
@@ -352,7 +355,8 @@ func (w *WorkerSolana) handleTx(ctx context.Context, tx *rpc.TransactionWithMeta
 		}
 	}
 	for _, cancellerEvent := range timelockEvent.Cancelled {
-		w.logger.Debugf("found event cancelled: %s continuing with next event...", cancellerEvent.ID)
+		hexID := hex.EncodeToString(cancellerEvent.ID[:])
+		w.logger.Debugf("found event cancelled: %s continuing with next event...", hexID)
 		w.handleEventCancelled(ctx, cancellerEvent)
 	}
 
