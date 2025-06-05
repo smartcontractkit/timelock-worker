@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"strings"
 
+	eth "github.com/ethereum/go-ethereum/common"
 	bin "github.com/gagliardetto/binary"
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
@@ -34,8 +35,8 @@ type SolanaTimelockCallScheduledEvent struct {
 	ID          operationKey
 	Index       uint64
 	Target      solana.PublicKey
-	Predecessor operationKey
-	Salt        [32]byte
+	Predecessor eth.Hash
+	Salt        eth.Hash
 	Delay       uint64
 	Data        []byte
 	BlockNumber *big.Int `borsh_skip:"true"`
@@ -58,6 +59,9 @@ type SolanaTimelockCallCancelledEvent struct {
 // ParseTimelockEvents extracts and decodes Anchor events from tx.Meta.LogMessages.
 func ParseTimelockEvents(tx *rpc.TransactionWithMeta) (*SolanaTimelockEvents, error) {
 	solanaTx, err := tx.GetTransaction()
+	if err != nil {
+		solanaTx, err = tx.GetParsedTransaction()
+	}
 	if err != nil {
 		return nil, fmt.Errorf("unable to get solana transaction: %w", err)
 	}
