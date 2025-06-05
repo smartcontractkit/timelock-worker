@@ -74,7 +74,6 @@ func (s *solanaIntegrationTestSuite) SetupSuite() {
 	s.RmnRemoteProgramID = solana.MustPublicKeyFromBase58(in.SolanaChain.SolanaPrograms["rmn_remote"])
 	s.AccessControllerProgramID = solana.MustPublicKeyFromBase58(in.SolanaChain.SolanaPrograms["access_controller"])
 	s.TestPrivateKey = solana.MustPrivateKeyFromBase58(privateKey)
-
 }
 
 func (s *solanaIntegrationTestSuite) TearDownSuite() {
