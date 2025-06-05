@@ -73,7 +73,7 @@ func (s *solanaIntegrationTestSuite) TestTimelockWorkerListen() {
 
 		s.EventuallyWithT(func(collect *assert.CollectT) {
 			assert.GreaterOrEqual(collect, logs.FilterMessageSnippet("found event cancelled").Len(), 1)
-			assert.GreaterOrEqual(collect, logs.FilterMessageSnippet("event received, cancelling operation").Len(), 1)
+			assert.GreaterOrEqual(collect, logs.FilterMessageSnippet("event Cancelled received, cancelling operation").Len(), 1)
 			assert.GreaterOrEqual(collect, logs.FilterMessageSnippet("nop.delFromScheduler").Len(), 1)
 		}, 10*time.Second, 200*time.Millisecond, logMessages(logs))
 	}
