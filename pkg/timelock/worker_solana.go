@@ -13,10 +13,10 @@ import (
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/gagliardetto/solana-go/rpc/jsonrpc"
-
-	"github.com/smartcontractkit/mcms/sdk"
-	solanasdk "github.com/smartcontractkit/mcms/sdk/solana"
 	"go.uber.org/zap"
+
+	mcmssdk "github.com/smartcontractkit/mcms/sdk"
+	mcmssolanasdk "github.com/smartcontractkit/mcms/sdk/solana"
 
 	"github.com/smartcontractkit/timelock-worker/pkg/isclosed"
 )
@@ -26,13 +26,13 @@ import (
 type WorkerSolana struct {
 	solanaClient        *rpc.Client
 	timelockProgramKey  solana.PublicKey
-	instanceSeed        solanasdk.PDASeed // instanceSeed is the seed used to derive the timelock instance.
-	timelockFullAddress string            // timelockFullAddress is the full address of the timelock program <programID>.<instanceSeed>
+	instanceSeed        mcmssolanasdk.PDASeed // instanceSeed is the seed used to derive the timelock instance.
+	timelockFullAddress string                // timelockFullAddress is the full address of the timelock program <programID>.<instanceSeed>
 	pollPeriod          int64
 	listenerPollPeriod  int64
 	pollSize            int
 	dryRun              bool
-	inspector           sdk.TimelockInspector // inspector is used to query timelock state
+	inspector           mcmssdk.TimelockInspector // inspector is used to query timelock state
 	logger              *zap.SugaredLogger
 	privateKey          solana.PrivateKey
 	lastSignature       *solana.Signature // last signature processed
@@ -63,7 +63,7 @@ func NewTimelockWorkerSolana(
 		return nil, fmt.Errorf("invalid node URL: %s (accepted schemes are: %v)", nodeURL, validNodeUrlSchemes)
 	}
 
-	timelockPubKey, instanceSeed, err := solanasdk.ParseContractAddress(timelockAddress)
+	timelockPubKey, instanceSeed, err := mcmssolanasdk.ParseContractAddress(timelockAddress)
 	if err != nil {
 		return nil, fmt.Errorf("timelock addresses provided is not valid: %s", timelockAddress)
 	}
@@ -86,7 +86,7 @@ func NewTimelockWorkerSolana(
 
 	// All variables provided are correct, start allocating new structures.
 	client := rpc.New(nodeURL)
-	inspector := solanasdk.NewTimelockInspector(client)
+	inspector := mcmssolanasdk.NewTimelockInspector(client)
 
 	tWorker := &WorkerSolana{
 		solanaClient:        client,
@@ -106,7 +106,7 @@ func NewTimelockWorkerSolana(
 	if dryRun {
 		tWorker.scheduler = newNopScheduler(logger)
 	} else {
-		tWorker.scheduler = newScheduler(time.Duration(pollPeriod)*time.Second, logger, func(context.Context, []TimelockCallScheduled) {})
+		tWorker.scheduler = newScheduler(time.Duration(pollPeriod)*time.Second, logger, tWorker.execute)
 	}
 
 	return tWorker, nil
@@ -123,7 +123,7 @@ func (w *WorkerSolana) Listen(ctx context.Context) error {
 	// Run the scheduler to add/del operations in a thread-safe way.
 	schedulingDone := w.scheduler.runScheduler(ctxwc)
 
-	//// Retrieve logs asynchronously.
+	// Retrieve logs asynchronously.
 	pollDone, txCh := w.startPolling(ctxwc)
 
 	// Start processing transactions
@@ -135,12 +135,13 @@ func (w *WorkerSolana) Listen(ctx context.Context) error {
 	select {
 	case <-ctxwc.Done():
 	case <-procDone:
+	case <-schedulingDone:
 		cancel()
 	}
 
 	w.logger.Info("shutting down timelock-worker")
-	w.logger.Info("dumping operation store")
 
+	w.logger.Info("dumping operation store")
 	w.scheduler.dumpOperationStore(time.Now)
 
 	// Wait for all goroutines to finish.
@@ -327,7 +328,7 @@ func (w *WorkerSolana) processTransactions(ctx context.Context, txChannel <-chan
 // parses the events emitted by the timelock program. Any other events are ignored.
 func (w *WorkerSolana) handleTx(ctx context.Context, tx *rpc.TransactionWithMeta) error {
 	// ignore tx with no logs
-	if len(tx.Meta.LogMessages) == 0 {
+	if tx.Meta == nil || len(tx.Meta.LogMessages) == 0 {
 		return nil
 	}
 
@@ -337,8 +338,7 @@ func (w *WorkerSolana) handleTx(ctx context.Context, tx *rpc.TransactionWithMeta
 	}
 
 	for _, scheduledEvent := range timelockEvent.Scheduled {
-		hexID := hex.EncodeToString(scheduledEvent.ID[:])
-		w.logger.Debugf("found event scheduled: %s", hexID)
+		w.logger.Debugf("found event scheduled: 0x%x (index: %d)", scheduledEvent.ID, scheduledEvent.Index)
 		err = w.handleEventScheduled(ctx, scheduledEvent)
 		if err != nil {
 			w.logger.Errorf("error handling scheduled event: %v continuing with next event...", err)
@@ -346,8 +346,7 @@ func (w *WorkerSolana) handleTx(ctx context.Context, tx *rpc.TransactionWithMeta
 		}
 	}
 	for _, executedEvent := range timelockEvent.Executed {
-		hexID := hex.EncodeToString(executedEvent.ID[:])
-		w.logger.Debugf("found event executed: %s", hexID)
+		w.logger.Debugf("found event executed: 0x%x (index: %d)", executedEvent.ID, executedEvent.Index)
 		err = w.handleEventExecuted(ctx, executedEvent)
 		if err != nil {
 			w.logger.Errorf("error handling executed event: %v continuing with next event...", err)
@@ -355,8 +354,7 @@ func (w *WorkerSolana) handleTx(ctx context.Context, tx *rpc.TransactionWithMeta
 		}
 	}
 	for _, cancellerEvent := range timelockEvent.Cancelled {
-		hexID := hex.EncodeToString(cancellerEvent.ID[:])
-		w.logger.Debugf("found event cancelled: %s continuing with next event...", hexID)
+		w.logger.Debugf("found event cancelled: 0x%x; continuing with next event...", cancellerEvent.ID)
 		w.handleEventCancelled(ctx, cancellerEvent)
 	}
 
@@ -398,6 +396,11 @@ func (w *WorkerSolana) handleEventScheduled(ctx context.Context, event SolanaTim
 		With(eventTarget, event.Target.String()).
 		With(operationID, fmt.Sprintf("%x", event.ID))
 
+	if event.Index > 0 {
+		logger.Infow("skipping scheduled event with positive", "event type", eventCallScheduled)
+		return nil
+	}
+
 	isDone, err := w.inspector.IsOperationDone(ctx, w.timelockFullAddress, event.ID)
 	if err != nil {
 		return fmt.Errorf("timelock.isOperationDone call failed (operation id: %x): %w", event.ID, err)
@@ -410,7 +413,7 @@ func (w *WorkerSolana) handleEventScheduled(ctx context.Context, event SolanaTim
 
 		if isOp {
 			logger.Infow("event received", "event type", eventCallScheduled)
-			w.scheduler.addToScheduler(&solanaTimelockCallScheduled{callScheduledEvent: event})
+			w.scheduler.addToScheduler(NewSolanaTimelockCallScheduled(event))
 		} else {
 			logger.Warn("invalid operation")
 		}

@@ -26,6 +26,9 @@ type TimelockCallScheduled interface {
 	Index() int
 	BlockNumber() *big.Int
 	TxHash() string
+	Predecessor() eth.Hash
+	Salt() eth.Hash
+	String() string
 }
 
 type Scheduler interface {

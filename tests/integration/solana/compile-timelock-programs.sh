@@ -45,7 +45,7 @@ if [[ -z "$COMMIT_HASH" ]]; then
 fi
 
 # Programs to build
-PROGRAMS=("timelock" "access-controller" "external-program-cpi-stub")
+PROGRAMS=("mcm" "timelock" "access-controller" "external-program-cpi-stub" "rmn-remote")
 
 cd "${PROJECT_ROOT}"
 
