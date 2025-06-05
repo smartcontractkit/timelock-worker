@@ -74,9 +74,7 @@ func (s *solanaIntegrationTestSuite) SetupSuite() {
 	s.RmnRemoteProgramID = solana.MustPublicKeyFromBase58(in.SolanaChain.SolanaPrograms["rmn_remote"])
 	s.AccessControllerProgramID = solana.MustPublicKeyFromBase58(in.SolanaChain.SolanaPrograms["access_controller"])
 	s.TestPrivateKey = solana.MustPrivateKeyFromBase58(privateKey)
-	_, roleMap := timelockutils.TestRoleAccounts(2)
-	s.RoleMap = roleMap
-	s.initAccessController()
+
 }
 
 func (s *solanaIntegrationTestSuite) TearDownSuite() {

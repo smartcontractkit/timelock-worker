@@ -127,6 +127,8 @@ func (s *solanaIntegrationTestSuite) assignRoleToAccounts(
 }
 
 func (s *solanaIntegrationTestSuite) initializeAccessController(auth solana.PrivateKey) {
+	access_controller.SetProgramID(s.AccessControllerProgramID)
+
 	_, s.RoleMap = timelockutils.TestRoleAccounts(2)
 	s.ProposerAccessController = s.RoleMap[timelockbindings.Proposer_Role].AccessController.PublicKey()
 	s.ExecutorAccessController = s.RoleMap[timelockbindings.Executor_Role].AccessController.PublicKey()
@@ -144,29 +146,10 @@ func (s *solanaIntegrationTestSuite) initializeAccessController(auth solana.Priv
 	}
 }
 
-// initializeTimelock initializes a new timelock instance on Solana with the given PDA seed and minimum delay.
-func (s *solanaIntegrationTestSuite) initAccessController() {
-	ctx := s.Ctx
-	admin := s.TestPrivateKey
-	access_controller.SetProgramID(s.AccessControllerProgramID)
-	s.Run("init access controller", func() {
-		for _, data := range s.RoleMap {
-			initAccIxs := s.getInitAccessControllersIxs(ctx, data.AccessController.PublicKey(), admin)
-
-			testutils.SendAndConfirm(ctx, s.T(), s.solanaClient, initAccIxs, admin, rpc.CommitmentConfirmed, common.AddSigners(data.AccessController))
-
-			var ac access_controller.AccessController
-			err := common.GetAccountDataBorshInto(ctx, s.solanaClient, data.AccessController.PublicKey(), rpc.CommitmentConfirmed, &ac)
-			s.Require().NoError(err, "Failed to get access controller account data")
-		}
-	})
-}
-
 // initializeTimelockInstance initializes a new timelock instance on Solana with the given PDA seed and minimum delay.
 // also assigns to the admin account all the roles defined in the RoleMap.
 func (s *solanaIntegrationTestSuite) initializeTimelockInstance(pdaSeed solanasdk.PDASeed, minDelay time.Duration) {
 	timelockbindings.SetProgramID(s.TimelockProgramID)
-	access_controller.SetProgramID(s.AccessControllerProgramID)
 	admin := s.TestPrivateKey
 
 	s.initializeAccessController(admin)
