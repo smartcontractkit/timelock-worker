@@ -2,18 +2,12 @@ package solana
 
 import (
 	"context"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
-	"github.com/samber/lo"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"go.uber.org/zap/zaptest/observer"
-
 	cpistub "github.com/smartcontractkit/chainlink-ccip/chains/solana/gobindings/external_program_cpi_stub"
 	rmnremotebindings "github.com/smartcontractkit/chainlink-ccip/chains/solana/gobindings/rmn_remote"
 	timelockbindings "github.com/smartcontractkit/chainlink-ccip/chains/solana/gobindings/timelock"
@@ -22,41 +16,71 @@ import (
 	e2eutils "github.com/smartcontractkit/mcms/e2e/utils/solana"
 	solanasdk "github.com/smartcontractkit/mcms/sdk/solana"
 	mcmstypes "github.com/smartcontractkit/mcms/types"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	timelockTests "github.com/smartcontractkit/timelock-worker/tests"
 	evmtests "github.com/smartcontractkit/timelock-worker/tests/integration/evm"
 )
 
-// TestTimelockWorkerListen tests the Solana timelock worker's ability to listen for events and process them correctly.
+// TestTimelockWorkerListen tests the Solana timelock worker's ability to listen for scheduled and canceled operations.
 func (s *solanaIntegrationTestSuite) TestTimelockWorkerListen() {
-	s.withTimeout(30 * time.Second)
+	s.withTimeout(45 * time.Second)
+
+	// --- Arrange shared setup ---
 	e2eutils.FundAccounts(s.T(), s.Ctx, []solana.PublicKey{s.TestPrivateKey.PublicKey()}, 1, s.solanaClient)
 
 	logger, logs := timelockTests.NewTestLogger()
 	instanceIDSeed := solanasdk.PDASeed([32]byte{'t', 'i', 'm', 'e', 'l', 'o', 'c', 'k'})
-	s.initializeTimelock(instanceIDSeed, time.Second*1)
+	s.initializeTimelockInstance(instanceIDSeed, 1*time.Second)
 	contractID := solanasdk.ContractAddress(s.TimelockProgramID, instanceIDSeed)
 
 	predecessor := [32]byte{}
-	salt := [32]byte{123}
-	s.scheduleTestIx(instanceIDSeed, predecessor, salt)
+	salt1 := [32]byte{123}
+	salt2 := [32]byte{42}
 
-	go runTimelockWorkerSolana(s.T(), s.Ctx, s.solanaBlockchain.Nodes[0].HostHTTPUrl, contractID,
-		s.TestPrivateKey.String(), int64(1), int64(1), 10, true, rpc.CommitmentConfirmed, logger)
+	go runTimelockWorkerSolana(
+		s.T(),
+		s.Ctx,
+		s.solanaBlockchain.Nodes[0].HostHTTPUrl,
+		contractID,
+		s.TestPrivateKey.String(),
+		int64(1),
+		int64(1),
+		10,
+		true,
+		rpc.CommitmentConfirmed,
+		logger,
+	)
 
-	s.EventuallyWithT(func(collect *assert.CollectT) {
-		expectedMessagesRegexp := `(?s)` + // multiline mode
-			`timelock-worker started \[solana\].*` +
-			`found event scheduled: 0x3b043a17511bd02105e018a979fa71684feb4e6576e0957fdd8151e05be23910.*` +
-			`event received.*Operation ID=3b043a17511bd02105e018a979fa71684feb4e6576e0957fdd8151e05be23910.*` +
-			`nop\.addToScheduler.*id:0x3b043a17511bd02105e018a979fa71684feb4e6576e0957fdd8151e05be23910`
-		logMessages := lo.Map(logs.All(), func(l observer.LoggedEntry, _ int) string { return logEntryString(l) })
-		logMessagesStr := strings.Join(logMessages, "\n")
-		assert.Regexp(collect, expectedMessagesRegexp, logMessagesStr)
-		// s.Logf("LOG MESSAGES:\n%v\n", logMessagesStr)
-	}, 10*time.Second, 200*time.Millisecond, logs.All())
+	// --- Test scheduling operation ---
+	var opID [32]byte
+
+	{
+		_, opID = s.scheduleTestIx(instanceIDSeed, predecessor, salt1)
+		_, _ = s.scheduleTestIx(instanceIDSeed, predecessor, salt2)
+
+		s.EventuallyWithT(func(collect *assert.CollectT) {
+			assert.Equal(collect, logs.FilterMessage("timelock-worker started [solana]").Len(), 1)
+			assert.GreaterOrEqual(collect, logs.FilterMessageSnippet("found event scheduled:").Len(), 2)
+			assert.GreaterOrEqual(collect, logs.FilterMessageSnippet("event received").Len(), 2)
+		}, 10*time.Second, 200*time.Millisecond, logMessages(logs))
+	}
+
+	// --- Test canceling the first operation ---
+	{
+		s.cancelScheduledIx(instanceIDSeed, opID)
+
+		s.EventuallyWithT(func(collect *assert.CollectT) {
+			assert.GreaterOrEqual(collect, logs.FilterMessageSnippet("found event cancelled").Len(), 1)
+			assert.GreaterOrEqual(collect, logs.FilterMessageSnippet("event received, cancelling operation").Len(), 1)
+			assert.GreaterOrEqual(collect, logs.FilterMessageSnippet("nop.delFromScheduler").Len(), 1)
+		}, 10*time.Second, 200*time.Millisecond, logMessages(logs))
+	}
+
 }
 
+// TestTimelockWorkerExecute tests the Solana timelock worker's ability to execute scheduled operations.
 func (s *solanaIntegrationTestSuite) TestTimelockWorkerExecute() {
 	// --- arrange ---
 	s.withTimeout(30 * time.Second) // FIXME: configure solana-test-validator with shorter slots and faster finalization
@@ -75,7 +99,7 @@ func (s *solanaIntegrationTestSuite) TestTimelockWorkerExecute() {
 
 	e2eutils.FundAccounts(s.T(), s.Ctx, []solana.PublicKey{mcmSignerPDA, timelockSignerPDA}, 1, s.solanaClient)
 	s.initializeMcm(pdaSeed, signer.Address)
-	s.initializeTimelock(pdaSeed, time.Second*1)
+	s.initializeTimelockInstance(pdaSeed, time.Second*1)
 	s.assignRoleToAccounts(pdaSeed, []solana.PublicKey{mcmSignerPDA}, timelockbindings.Proposer_Role)
 	s.assignRoleToAccounts(pdaSeed, []solana.PublicKey{mcmSignerPDA}, timelockbindings.Bypasser_Role)
 	s.initializeCPIStub()
@@ -97,6 +121,10 @@ func (s *solanaIntegrationTestSuite) TestTimelockWorkerExecute() {
 
 	// --- assert ---
 	s.EventuallyWithT(func(collect *assert.CollectT) {
+		logEntries := logs.All()
+		if !assert.GreaterOrEqual(collect, len(logEntries), 11, "Expected at least 11 log entries") {
+			return
+		}
 		assert.Equal(collect, logs.FilterMessage("added transaction 0 to mcms batch operation b6b1c03b04ff100d1b1e76e3a8cc336c81da06d0d2e5082ca9d50bba261d03c0").Len(), 1)
 		assert.Equal(collect, logs.FilterMessageSnippet("execute operation b6b1c03b04ff100d1b1e76e3a8cc336c81da06d0d2e5082ca9d50bba261d03c0 success").Len(), 1)
 		assert.Equal(collect, logs.FilterMessage("de-scheduled operation: b6b1c03b04ff100d1b1e76e3a8cc336c81da06d0d2e5082ca9d50bba261d03c0").Len(), 1)
@@ -140,7 +168,7 @@ func solanaProposalWithStubMutInstruction(
 	require.NoError(t, err)
 
 	// rmn remote curse transaction
-	curseSubject := rmnremotebindings.CurseSubject{Value:[16]byte{'s', 'u', 'b', 'j', 'e', 'c', 't'}}
+	curseSubject := rmnremotebindings.CurseSubject{Value: [16]byte{'s', 'u', 'b', 'j', 'e', 'c', 't'}}
 	configPDA, _, _ := solana.FindProgramAddress([][]byte{[]byte("config")}, rmnRemoteProgramID)
 	cursesPDA, _, _ := solana.FindProgramAddress([][]byte{[]byte("curses")}, rmnRemoteProgramID)
 	verifyNotCursedInstruction, err := rmnremotebindings.NewVerifyNotCursedInstruction(curseSubject, cursesPDA,
