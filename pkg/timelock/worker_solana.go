@@ -2,7 +2,6 @@ package timelock
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
 	"net/url"
 	"os/signal"

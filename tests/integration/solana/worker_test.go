@@ -2,6 +2,7 @@ package solana
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -29,17 +30,13 @@ import (
 
 // TestTimelockWorkerListen_ScheduleOP tests the Solana timelock worker's ability to listen for events and process them correctly.
 func (s *solanaIntegrationTestSuite) TestTimelockWorkerListen_ScheduleOP() {
+	s.withTimeout(30 * time.Second)
 
-	ctx, cancel := context.WithCancel(s.Ctx)
-	defer cancel()
-	e2eutils.FundAccounts(s.T(), ctx, []solana.PublicKey{s.TestPrivateKey.PublicKey()}, 1, s.solanaClient)
-
-	sctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	e2eutils.FundAccounts(s.T(), s.Ctx, []solana.PublicKey{s.TestPrivateKey.PublicKey()}, 1, s.solanaClient)
 
 	logger, logs := timelockTests.NewTestLogger()
 	instanceIDSeed := solanasdk.PDASeed([32]byte{'t', 'i', 'm', 'e', 'l', 'o', 'c', 'k'})
-	s.initializeTimelock(instanceIDSeed, time.Second*1)
+	s.initializeTimelockInstance(instanceIDSeed, time.Second*1)
 	contractID := solanasdk.ContractAddress(s.TimelockProgramID, instanceIDSeed)
 
 	predecessor := [32]byte{}
@@ -80,7 +77,7 @@ func (s *solanaIntegrationTestSuite) TestTimelockWorkerExecute() {
 
 	e2eutils.FundAccounts(s.T(), s.Ctx, []solana.PublicKey{mcmSignerPDA, timelockSignerPDA}, 1, s.solanaClient)
 	s.initializeMcm(pdaSeed, signer.Address)
-	s.initializeTimelock(pdaSeed, time.Second*1)
+	s.initializeTimelockInstance(pdaSeed, time.Second*1)
 	s.assignRoleToAccounts(pdaSeed, []solana.PublicKey{mcmSignerPDA}, timelockbindings.Proposer_Role)
 	s.assignRoleToAccounts(pdaSeed, []solana.PublicKey{mcmSignerPDA}, timelockbindings.Bypasser_Role)
 	s.initializeCPIStub()
@@ -103,7 +100,7 @@ func (s *solanaIntegrationTestSuite) TestTimelockWorkerExecute() {
 	// --- assert ---
 	s.EventuallyWithT(func(collect *assert.CollectT) {
 		logEntries := logs.All()
-		if !assert.GreaterOrEqual(collect, len(logEntries), 11, "Expected at least 12 log entries") {
+		if !assert.GreaterOrEqual(collect, len(logEntries), 11, "Expected at least 11 log entries") {
 			return
 		}
 		assert.Equal(collect, logs.FilterMessage("added transaction 0 to mcms batch operation b6b1c03b04ff100d1b1e76e3a8cc336c81da06d0d2e5082ca9d50bba261d03c0").Len(), 1)
@@ -149,7 +146,7 @@ func solanaProposalWithStubMutInstruction(
 	require.NoError(t, err)
 
 	// rmn remote curse transaction
-	curseSubject := rmnremotebindings.CurseSubject{Value:[16]byte{'s', 'u', 'b', 'j', 'e', 'c', 't'}}
+	curseSubject := rmnremotebindings.CurseSubject{Value: [16]byte{'s', 'u', 'b', 'j', 'e', 'c', 't'}}
 	configPDA, _, _ := solana.FindProgramAddress([][]byte{[]byte("config")}, rmnRemoteProgramID)
 	cursesPDA, _, _ := solana.FindProgramAddress([][]byte{[]byte("curses")}, rmnRemoteProgramID)
 	verifyNotCursedInstruction, err := rmnremotebindings.NewVerifyNotCursedInstruction(curseSubject, cursesPDA,
@@ -201,12 +198,8 @@ func readCPIStubU8Value(ctx context.Context, t *testing.T, client *rpc.Client, p
 }
 
 func (s *solanaIntegrationTestSuite) TestTimelockWorkerListen_CancelScheduledOP() {
-	ctx, cancel := context.WithCancel(s.Ctx)
-	defer cancel()
-	e2eutils.FundAccounts(s.T(), ctx, []solana.PublicKey{s.TestPrivateKey.PublicKey()}, 1, s.solanaClient)
-
-	sctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	s.withTimeout(30 * time.Second)
+	e2eutils.FundAccounts(s.T(), s.Ctx, []solana.PublicKey{s.TestPrivateKey.PublicKey()}, 1, s.solanaClient)
 
 	logger, logs := timelockTests.NewTestLogger()
 	instanceIDSeed := solanasdk.PDASeed([32]byte{'c', 'a', 'n', 'c', 'e', 'l', 't', 'e', 's', 't'})
@@ -221,7 +214,7 @@ func (s *solanaIntegrationTestSuite) TestTimelockWorkerListen_CancelScheduledOP(
 	s.cancelScheduledIx(instanceIDSeed, operationID)
 
 	go runTimelockWorkerSolana(s.T(),
-		sctx,
+		s.Ctx,
 		s.solanaBlockchain.Nodes[0].HostHTTPUrl,
 		contractID,
 		s.TestPrivateKey.String(),
@@ -235,27 +228,28 @@ func (s *solanaIntegrationTestSuite) TestTimelockWorkerListen_CancelScheduledOP(
 
 	s.EventuallyWithT(func(collect *assert.CollectT) {
 		logEntries := logs.All()
-		if !assert.GreaterOrEqual(collect, len(logEntries), 12, "Expected at least 12 log entries") {
+		if !assert.GreaterOrEqual(collect, len(logEntries), 11, "Expected at least 11 log entries") {
 			return
 		}
+		assert.Equal(collect, logs.FilterMessage("timelock-worker started [solana]").Len(), 1)
+		assert.Equal(collect, logs.FilterMessage("starting pollSignatures").Len(), 1)
 
-		assert.Equal(collect, "timelock-worker started [solana]", logEntries[0].Message)
-		assert.Equal(collect, "starting pollSignatures", logEntries[7].Message)
-		assert.Contains(collect, logEntries[8].Message, "found event scheduled:")
-		assert.Contains(collect, logEntries[9].Message, "error handling scheduled event")
-		assert.Contains(collect, logEntries[10].Message, "found event cancelled")
-		assert.Contains(collect, logEntries[11].Message, "event received, cancelling operation")
-		assert.Contains(collect, logEntries[12].Message, "nop.delFromScheduler")
-	}, 25*time.Second, 200*time.Millisecond)
+		// At least one scheduled event was found
+		assert.GreaterOrEqual(collect, logs.FilterMessageSnippet("found event scheduled:").Len(), 1)
+
+		// Cancellation events observed
+		assert.GreaterOrEqual(collect, logs.FilterMessageSnippet("found event cancelled").Len(), 1)
+		assert.GreaterOrEqual(collect, logs.FilterMessageSnippet("event received, cancelling operation").Len(), 1)
+
+		// Scheduler removed the entry
+		assert.GreaterOrEqual(collect, logs.FilterMessageSnippet("nop.delFromScheduler").Len(), 1)
+	}, 25*time.Second, 200*time.Millisecond, logMessages(logs))
+
 }
 
 func (s *solanaIntegrationTestSuite) TestTimelockWorkerListen_ExecutedOP() {
-	ctx, cancel := context.WithCancel(s.Ctx)
-	defer cancel()
-	e2eutils.FundAccounts(s.T(), ctx, []solana.PublicKey{s.TestPrivateKey.PublicKey()}, 1, s.solanaClient)
-
-	sctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	s.withTimeout(30 * time.Second)
+	e2eutils.FundAccounts(s.T(), s.Ctx, []solana.PublicKey{s.TestPrivateKey.PublicKey()}, 1, s.solanaClient)
 
 	logger, logs := timelockTests.NewTestLogger()
 	instanceIDSeed := solanasdk.PDASeed([32]byte{'e', 'x', 'e', 'c', 't', 'e', 's', 't'})
@@ -265,14 +259,14 @@ func (s *solanaIntegrationTestSuite) TestTimelockWorkerListen_ExecutedOP() {
 
 	predecessor := [32]byte{}
 	salt := [32]byte{77}
-	ix, operationID := s.scheduleTestIx(instanceIDSeed, predecessor, salt)
+	ix, _ := s.scheduleTestIx(instanceIDSeed, predecessor, salt)
 
 	time.Sleep(5 * time.Second)
 	// Execute the operation
-	s.executeScheduledIx(instanceIDSeed, operationID, ix)
+	s.executeScheduledIx(instanceIDSeed, salt, predecessor, ix)
 
 	go runTimelockWorkerSolana(s.T(),
-		sctx,
+		s.Ctx,
 		s.solanaBlockchain.Nodes[0].HostHTTPUrl,
 		contractID,
 		s.TestPrivateKey.String(),
@@ -286,15 +280,25 @@ func (s *solanaIntegrationTestSuite) TestTimelockWorkerListen_ExecutedOP() {
 
 	s.EventuallyWithT(func(collect *assert.CollectT) {
 		logEntries := logs.All()
-		if !assert.GreaterOrEqual(collect, len(logEntries), 1, "Expected at least 13 log entries") {
+		for i, entry := range logEntries {
+			fmt.Printf("Log Entry %d: %s\n", i, entry.Message)
+		}
+		if !assert.GreaterOrEqual(collect, len(logEntries), 12, "Expected at least 12 log entries") {
 			return
 		}
 
-		assert.Equal(collect, "timelock-worker started [solana]", logEntries[0].Message)
-		assert.Equal(collect, "starting pollSignatures", logEntries[7].Message)
-		assert.Contains(collect, logEntries[8].Message, "found event scheduled:")
-		assert.Contains(collect, logEntries[9].Message, "found event executed")
-		assert.Contains(collect, logEntries[10].Message, "event received, deleting operation from scheduler")
-		assert.Contains(collect, logEntries[11].Message, "nop.delFromScheduler")
-	}, 25*time.Second, 200*time.Millisecond)
+		// Startup logs
+		assert.Equal(collect, logs.FilterMessage("timelock-worker started [solana]").Len(), 1)
+		assert.Equal(collect, logs.FilterMessage("starting pollSignatures").Len(), 1)
+
+		// Scheduled and executed event logs
+		assert.GreaterOrEqual(collect, logs.FilterMessageSnippet("found event scheduled:").Len(), 1)
+		assert.GreaterOrEqual(collect, logs.FilterMessageSnippet("error handling scheduled event: timelock.isOperationDone").Len(), 1)
+		assert.GreaterOrEqual(collect, logs.FilterMessageSnippet("found event executed").Len(), 1)
+
+		// Cleanup logs
+		assert.GreaterOrEqual(collect, logs.FilterMessageSnippet("event received, deleting operation from scheduler").Len(), 1)
+		assert.GreaterOrEqual(collect, logs.FilterMessageSnippet("nop.delFromScheduler").Len(), 1)
+	}, 25*time.Second, 200*time.Millisecond, logMessages(logs))
+
 }

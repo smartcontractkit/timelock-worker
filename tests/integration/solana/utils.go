@@ -145,8 +145,26 @@ func (s *solanaIntegrationTestSuite) initializeAccessController(auth solana.Priv
 }
 
 // initializeTimelock initializes a new timelock instance on Solana with the given PDA seed and minimum delay.
+func (s *solanaIntegrationTestSuite) initAccessController() {
+	ctx := s.Ctx
+	admin := s.TestPrivateKey
+	access_controller.SetProgramID(s.AccessControllerProgramID)
+	s.Run("init access controller", func() {
+		for _, data := range s.RoleMap {
+			initAccIxs := s.getInitAccessControllersIxs(ctx, data.AccessController.PublicKey(), admin)
+
+			testutils.SendAndConfirm(ctx, s.T(), s.solanaClient, initAccIxs, admin, rpc.CommitmentConfirmed, common.AddSigners(data.AccessController))
+
+			var ac access_controller.AccessController
+			err := common.GetAccountDataBorshInto(ctx, s.solanaClient, data.AccessController.PublicKey(), rpc.CommitmentConfirmed, &ac)
+			s.Require().NoError(err, "Failed to get access controller account data")
+		}
+	})
+}
+
+// initializeTimelockInstance initializes a new timelock instance on Solana with the given PDA seed and minimum delay.
 // also assigns to the admin account all the roles defined in the RoleMap.
-func (s *solanaIntegrationTestSuite) initializeTimelock(pdaSeed solanasdk.PDASeed, minDelay time.Duration) {
+func (s *solanaIntegrationTestSuite) initializeTimelockInstance(pdaSeed solanasdk.PDASeed, minDelay time.Duration) {
 	timelockbindings.SetProgramID(s.TimelockProgramID)
 	access_controller.SetProgramID(s.AccessControllerProgramID)
 	admin := s.TestPrivateKey
@@ -521,7 +539,7 @@ func (s *solanaIntegrationTestSuite) cancelScheduledIx(
 	timelockID solanasdk.PDASeed,
 	operationID [32]byte,
 ) {
-	timelock2.SetProgramID(s.TimelockProgramID)
+	timelockbindings.SetProgramID(s.TimelockProgramID)
 
 	operationPDA, err := solanasdk.FindTimelockOperationPDA(s.TimelockProgramID, timelockID, operationID)
 	s.Require().NoError(err)
@@ -529,9 +547,9 @@ func (s *solanaIntegrationTestSuite) cancelScheduledIx(
 	configPDA, err := solanasdk.FindTimelockConfigPDA(s.TimelockProgramID, timelockID)
 	s.Require().NoError(err)
 
-	proposerAC := s.RoleMap[timelock2.Proposer_Role].AccessController.PublicKey()
+	proposerAC := s.RoleMap[timelockbindings.Proposer_Role].AccessController.PublicKey()
 
-	cancelIx, err := timelock2.NewCancelInstruction(
+	cancelIx, err := timelockbindings.NewCancelInstruction(
 		timelockID,
 		operationID,
 		operationPDA,
@@ -547,44 +565,22 @@ func (s *solanaIntegrationTestSuite) cancelScheduledIx(
 
 func (s *solanaIntegrationTestSuite) executeScheduledIx(
 	timelockID solanasdk.PDASeed,
-	operationID [32]byte,
+	salt,
+	predecessor [32]byte,
 	scheduledIx solana.Instruction,
 ) {
-	timelock2.SetProgramID(s.TimelockProgramID)
-
-	operationPDA, err := solanasdk.FindTimelockOperationPDA(s.TimelockProgramID, timelockID, operationID)
-	s.Require().NoError(err)
-
-	predecessorOp := solana.PublicKey{} // empty if predecessor is [32]byte{}
-	configPDA, err := solanasdk.FindTimelockConfigPDA(s.TimelockProgramID, timelockID)
-	s.Require().NoError(err)
-
-	timelockSignerPDA, err := solanasdk.FindTimelockSignerPDA(s.TimelockProgramID, timelockID)
-	s.Require().NoError(err)
-
-	proposerAC := s.RoleMap[timelock2.Proposer_Role].AccessController.PublicKey()
-
-	// Build ExecuteBatch instruction with remaining accounts
-	executeIxBuilder := timelock2.NewExecuteBatchInstruction(
-		timelockID,
-		operationID,
-		operationPDA,
-		predecessorOp,
-		configPDA,
-		timelockSignerPDA,
-		proposerAC,
-		s.TestPrivateKey.PublicKey(),
-	)
-
-	executeIxBuilder.Append(&solana.AccountMeta{
-		PublicKey: s.StubProgramID,
-	})
-
-	executeIx, err := executeIxBuilder.ValidateAndBuild()
-	s.Require().NoError(err)
-
-	res := testutils.SendAndConfirm(s.Ctx, s.T(), s.solanaClient, []solana.Instruction{executeIx}, s.TestPrivateKey, rpc.CommitmentConfirmed)
-	s.Require().Nil(res.Meta.Err, "Execution transaction failed: %v", res.Meta.Err)
+	timelockbindings.SetProgramID(s.TimelockProgramID)
+	executor := solanasdk.NewTimelockExecutor(s.solanaClient, s.TestPrivateKey)
+	mcmsTx, err := solanasdk.NewTransactionFromInstruction(scheduledIx, "MemoProgram", []string{})
+	s.Require().NoError(err, "Failed to create transaction from instruction")
+	bop := mcmstypes.BatchOperation{
+		ChainSelector: mcmstypes.ChainSelector(chainsel.SOLANA_DEVNET.Selector),
+		Transactions:  []mcmstypes.Transaction{mcmsTx},
+	}
+	timelockAddress := solanasdk.ContractAddress(s.TimelockProgramID, timelockID)
+	txResult, err := executor.Execute(s.Ctx, bop, timelockAddress, predecessor, salt)
+	s.Require().NoError(err, "Failed to execute scheduled instruction")
+	s.Require().NotEmpty(txResult.Hash, "Transaction hash should not be empty")
 }
 
 func (s *solanaIntegrationTestSuite) getProgramDataAddress(programID solana.PublicKey) solana.PublicKey {
