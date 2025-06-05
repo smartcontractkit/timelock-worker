@@ -20,6 +20,8 @@ import (
 	"github.com/smartcontractkit/timelock-worker/pkg/isclosed"
 )
 
+var validNodeUrlSchemesSolana = []string{"http", "https"}
+
 // WorkerSolana represents a solana worker instance. It fetches periodically the latest signatures
 // and transactions from the Solana RPC node and dispatches them to the scheduler.
 type WorkerSolana struct {
@@ -58,8 +60,8 @@ func NewTimelockWorkerSolana(
 		return nil, err
 	}
 
-	if !slices.Contains(validNodeUrlSchemes, u.Scheme) {
-		return nil, fmt.Errorf("invalid node URL: %s (accepted schemes are: %v)", nodeURL, validNodeUrlSchemes)
+	if !slices.Contains(validNodeUrlSchemesSolana, u.Scheme) {
+		return nil, fmt.Errorf("invalid node URL: %s (accepted schemes are: %v)", nodeURL, validNodeUrlSchemesEVM)
 	}
 
 	timelockPubKey, instanceSeed, err := mcmssolanasdk.ParseContractAddress(timelockAddress)
@@ -178,6 +180,7 @@ func (w *WorkerSolana) pollSignatures(ctx context.Context, sigCh chan<- solana.S
 			w.logger.Info("pollSignatures context cancelled")
 			return
 		case <-ticker.C:
+			w.logger.Infow("polling signatures timelock solana", "timelockProgramKey", w.timelockProgramKey, "lastSignature", w.lastSignature)
 			var until solana.Signature
 			if w.lastSignature != nil {
 				until = *w.lastSignature
@@ -197,9 +200,10 @@ func (w *WorkerSolana) pollSignatures(ctx context.Context, sigCh chan<- solana.S
 				continue
 			}
 			if len(sigs) == 0 {
+				w.logger.Info("no new signatures found, poll again in the next cycle")
 				continue
 			}
-
+			w.logger.Infow("found new signatures", "numSignatures", len(sigs))
 			slices.Reverse(sigs)
 			for _, info := range sigs {
 				select {
@@ -363,7 +367,7 @@ func (w *WorkerSolana) handleTx(ctx context.Context, tx *rpc.TransactionWithMeta
 // handleEventCancelled checks if the operation is cancelled and deletes it from the scheduler if it is.
 func (w *WorkerSolana) handleEventCancelled(_ context.Context, event SolanaTimelockCallCancelledEvent) {
 	w.logger.With(operationID, fmt.Sprintf("%x", event.ID)).
-		Infow("event received, cancelling operation", "event type", eventCancelled)
+		Infow("event Cancelled received, cancelling operation", "event type", eventCancelled)
 
 	w.scheduler.delFromScheduler(event.ID)
 }
@@ -379,7 +383,7 @@ func (w *WorkerSolana) handleEventExecuted(ctx context.Context, event SolanaTime
 		return fmt.Errorf("timelock.isOperationDone call failed (operation id: %x): %w", event.ID, err)
 	}
 	if isDone {
-		logger.Infow("event received, deleting operation from scheduler", "event type ", eventCallExecuted)
+		logger.Infow("event CallExecuted received, deleting operation from scheduler", "event type ", eventCallExecuted)
 
 		w.scheduler.delFromScheduler(event.ID)
 	} else {

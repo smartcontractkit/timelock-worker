@@ -106,7 +106,7 @@ func startTimelock(cmd *cobra.Command) {
 		}
 	} else if chainFamily == chain_selectors.FamilyEVM {
 		if !common.IsHexAddress(timelockAddress) {
-			slog.Fatalf("value of private-key is invalid for evm: %s", err.Error())
+			slog.Fatalf("value of private-key is invalid for evm")
 		}
 	}
 

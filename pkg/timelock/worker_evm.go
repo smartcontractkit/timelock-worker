@@ -45,7 +45,7 @@ type WorkerEVM struct {
 
 var httpSchemes = []string{"http", "https"}
 
-var validNodeUrlSchemes = []string{"http", "https", "ws", "wss"}
+var validNodeUrlSchemesEVM = []string{"http", "https", "ws", "wss"}
 
 // NewTimelockWorkerEVM initializes and returns a timelockWorker.
 // It's a singleton, so further executions will retrieve the same timelockWorker.
@@ -59,8 +59,8 @@ func NewTimelockWorkerEVM(
 		return nil, err
 	}
 
-	if !slices.Contains(validNodeUrlSchemes, u.Scheme) {
-		return nil, fmt.Errorf("invalid node URL: %s (accepted schemes are: %v)", nodeURL, validNodeUrlSchemes)
+	if !slices.Contains(validNodeUrlSchemesEVM, u.Scheme) {
+		return nil, fmt.Errorf("invalid node URL: %s (accepted schemes are: %v)", nodeURL, validNodeUrlSchemesEVM)
 	}
 
 	if !common.IsHexAddress(timelockAddress) {
