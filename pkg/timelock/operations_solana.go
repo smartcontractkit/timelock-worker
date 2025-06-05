@@ -4,11 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
-	"github.com/samber/lo"
 	mcmssolanasdk "github.com/smartcontractkit/mcms/sdk/solana"
 	mcmstypes "github.com/smartcontractkit/mcms/types"
 
@@ -16,58 +14,55 @@ import (
 	solanautils "github.com/smartcontractkit/chainlink-ccip/chains/solana/utils/common"
 )
 
-func (tw *WorkerSolana) execute(ctx context.Context, op []TimelockCallScheduled) {
-	if len(op) == 0 {
+func (tw *WorkerSolana) execute(ctx context.Context, ops []TimelockCallScheduled) {
+	if len(ops) == 0 {
 		tw.logger.Warn("no calls given")
 		return
 	}
-	opId := op[0].Id()
+	if len(ops) > 1 {
+		tw.logger.Warn("too many calls given")
+		return
+	}
+	op := ops[0]
 
-	isReady, err := tw.inspector.IsOperationReady(ctx, tw.timelockFullAddress, opId)
+	isReady, err := tw.inspector.IsOperationReady(ctx, tw.timelockFullAddress, op.Id())
 	if err != nil {
-		tw.logger.Errorf("unable to read operation %x \"ready\" status: %s", opId, err.Error())
+		tw.logger.Errorf("unable to read operation %x \"ready\" status: %s", op.Id(), err.Error())
 		return
 	}
 	if !isReady {
-		tw.logger.Infof("skipping operation %x: not ready", opId)
+		tw.logger.Infof("skipping operation %x: not ready", op.Id())
 		return
 	}
 
-	batchOps, err := tw.mapCallScheduledEventsToMcmsBatchOperations(ctx, op)
+	batchOp, err := tw.mapCallScheduledEventsToMcmsBatchOperation(ctx, op)
 	if err != nil {
 		tw.logger.Errorf("unable to convert call scheduled events to mcms transactions: %v", err)
 		return
 	}
 
+	tw.logger.Debugf("executing operation %x", op.Id())
 	timelockExecutor := mcmssolanasdk.NewTimelockExecutor(tw.solanaClient, tw.privateKey)
-
-	for i, batchOp := range batchOps {
-		tw.logger.Debugf("execute operation %x", op[i].Id())
-		result, err := timelockExecutor.Execute(ctx, batchOp, tw.timelockFullAddress, op[i].Predecessor(), op[i].Salt())
-		if err != nil {
-			tw.logger.Errorf("execute operation %x error: %s", opId, err.Error())
-		} else {
-			tw.logger.Infof("execute operation %x success: %s", op[i].Id(), result.Hash)
-		}
+	result, err := timelockExecutor.Execute(ctx, batchOp, tw.timelockFullAddress, op.Predecessor(), op.Salt())
+	if err != nil {
+		tw.logger.Errorf("execute operation %x error: %s", op.Id(), err.Error())
+	} else {
+		tw.logger.Infof("execute operation %x success: %s", op.Id(), result.Hash)
 	}
 }
 
-func (tw *WorkerSolana) mapCallScheduledEventsToMcmsBatchOperations(
-	ctx context.Context, events []TimelockCallScheduled,
-) ([]mcmstypes.BatchOperation, error) {
-	// transactions := make([]mcmstypes.Transaction, len(events))
-	batchOps := make([]mcmstypes.BatchOperation, len(events))
-	for i, event := range events {
-		solanaEvent := event.(*solanaTimelockCallScheduled).callScheduledEvent
+func (tw *WorkerSolana) mapCallScheduledEventsToMcmsBatchOperation(
+	ctx context.Context, event TimelockCallScheduled,
+) (mcmstypes.BatchOperation, error) {
+	tw.logger.Debugf("mapping event %x to mcms batch operation", event.Id())
+	solanaEvent := event.(*solanaTimelockCallScheduled).callScheduledEvent
 
-		transactions, err := tw.getTransactionsInBatchOperation(ctx, solanaEvent.ID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get transactions in solana event 0x%x: %w", solanaEvent.ID, err)
-		}
-		batchOps[i] = mcmstypes.BatchOperation{Transactions: transactions}
+	transactions, err := tw.getTransactionsInBatchOperation(ctx, solanaEvent.ID)
+	if err != nil {
+		return mcmstypes.BatchOperation{}, fmt.Errorf("failed to get transactions in solana event 0x%x: %w", solanaEvent.ID, err)
 	}
 
-	return batchOps, nil
+	return mcmstypes.BatchOperation{Transactions: transactions}, nil
 }
 
 func (tw *WorkerSolana) getTransactionsInBatchOperation(
@@ -83,10 +78,10 @@ func (tw *WorkerSolana) getTransactionsInBatchOperation(
 	if err != nil {
 		return nil, fmt.Errorf("failed to get operation data from PDA account: %w", err)
 	}
-	tw.logger.Debugf("scheduled operation pda: %#v", scheduledOperation)
+	tw.logger.Debugf("retrieved operation %x from pda, containing %d instructions", operationID,
+		len(scheduledOperation.Instructions))
 
 	mcmsTxs := make([]mcmstypes.Transaction, len(scheduledOperation.Instructions))
-
 	for i, instruction := range scheduledOperation.Instructions {
 		additionalFields := mcmssolanasdk.AdditionalFields{Value: nil /* REVIEW */}
 		for _, account := range instruction.Accounts {
@@ -96,10 +91,6 @@ func (tw *WorkerSolana) getTransactionsInBatchOperation(
 				IsSigner:   account.IsSigner,
 			})
 		}
-		accountsStr := strings.Join(lo.Map(instruction.Accounts, func(account timelockbindings.InstructionAccount, _ int) string {
-			return fmt.Sprintf("%s W:%t S:%t", account.Pubkey, account.IsWritable, account.IsSigner)
-		}), "\n  ")
-		tw.logger.Infof("OPERATIONS SOLANA - EXECUTE - ADDING TRANSACTION %d - ACCOUNTS:\n  %s\n", i, accountsStr)
 
 		marshaledAdditionalFields, err := json.Marshal(additionalFields)
 		if err != nil {
@@ -111,6 +102,7 @@ func (tw *WorkerSolana) getTransactionsInBatchOperation(
 			Data:             instruction.Data,
 			AdditionalFields: marshaledAdditionalFields,
 		}
+		tw.logger.Debugf("added transaction %d to mcms batch operation %x", i, operationID)
 	}
 
 	return mcmsTxs, nil

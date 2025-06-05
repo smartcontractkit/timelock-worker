@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/programs/system"
 	"github.com/gagliardetto/solana-go/rpc"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -578,6 +580,11 @@ func sendAndConfirm(
 			}
 		}
 	}
+}
+
+func logMessages(logs *observer.ObservedLogs) string {
+	entries := lo.Map(logs.All(), func(l observer.LoggedEntry, _ int) string { return logEntryString(l) })
+	return fmt.Sprintf("LOG MESSAGES:\n%v\n", strings.Join(entries, "\n"))
 }
 
 func logEntryString(logEntry observer.LoggedEntry) string {

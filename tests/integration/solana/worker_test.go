@@ -97,14 +97,21 @@ func (s *solanaIntegrationTestSuite) TestTimelockWorkerExecute() {
 
 	// --- assert ---
 	s.EventuallyWithT(func(collect *assert.CollectT) {
+		assert.Equal(collect, logs.FilterMessage("added transaction 0 to mcms batch operation b6b1c03b04ff100d1b1e76e3a8cc336c81da06d0d2e5082ca9d50bba261d03c0").Len(), 1)
 		assert.Equal(collect, logs.FilterMessageSnippet("execute operation b6b1c03b04ff100d1b1e76e3a8cc336c81da06d0d2e5082ca9d50bba261d03c0 success").Len(), 1)
 		assert.Equal(collect, logs.FilterMessage("de-scheduled operation: b6b1c03b04ff100d1b1e76e3a8cc336c81da06d0d2e5082ca9d50bba261d03c0").Len(), 1)
+		assert.Equal(collect, logs.FilterMessage("found event executed: 0xb6b1c03b04ff100d1b1e76e3a8cc336c81da06d0d2e5082ca9d50bba261d03c0 (index: 0)").Len(), 1)
+
+		assert.Equal(collect, logs.FilterMessage("added transaction 0 to mcms batch operation ebbdec1a849b9b85194254e17af9dbbbc7b366645327e928e0bc5a6b87fbcf0b").Len(), 1)
+		assert.Equal(collect, logs.FilterMessage("added transaction 1 to mcms batch operation ebbdec1a849b9b85194254e17af9dbbbc7b366645327e928e0bc5a6b87fbcf0b").Len(), 1)
 		assert.Equal(collect, logs.FilterMessageSnippet("execute operation ebbdec1a849b9b85194254e17af9dbbbc7b366645327e928e0bc5a6b87fbcf0b success").Len(), 1)
 		assert.Equal(collect, logs.FilterMessage("de-scheduled operation: ebbdec1a849b9b85194254e17af9dbbbc7b366645327e928e0bc5a6b87fbcf0b").Len(), 1)
+		assert.Equal(collect, logs.FilterMessage("found event executed: 0xebbdec1a849b9b85194254e17af9dbbbc7b366645327e928e0bc5a6b87fbcf0b (index: 0)").Len(), 1)
+		assert.Equal(collect, logs.FilterMessage("found event executed: 0xebbdec1a849b9b85194254e17af9dbbbc7b366645327e928e0bc5a6b87fbcf0b (index: 1)").Len(), 1)
 
 		finalStubValue := readCPIStubU8Value(s.Ctx, s.T(), s.solanaClient, u8ValuePDA)
 		assert.Equal(collect, initialStubValue+1, finalStubValue)
-	}, 30*time.Second, 100*time.Millisecond)
+	}, 10*time.Second, 1000*time.Millisecond, logMessages(logs))
 }
 
 func solanaProposalWithStubMutInstruction(
