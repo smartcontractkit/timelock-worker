@@ -1,29 +1,22 @@
-# Builder image
-FROM quay.io/centos/centos:stream8 AS builder
+# Builder image: Go 1.22 on Alpine
+FROM golang:1.24-alpine AS builder
 
-USER root
-
-# Dependencies
-# change deprecated mirror to vault.centos.org
-RUN sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*
-RUN sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*
-
-# install go and git
-RUN dnf install -y golang git
-RUN mkdir /build
+# Set working directory
 WORKDIR /build
 
-# Golang build
+# Cache go modules
 COPY go.mod .
 COPY go.sum .
 RUN go mod download
+
+# Copy source code
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -a -installsuffix cgo -ldflags '-w -s -extldflags "-static"' -o timelock-worker .
 
-# Final image
-FROM quay.io/centos/centos:stream8
-COPY --from=builder /build/timelock-worker /app/
-WORKDIR /app
+# Build statically-linked binary
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-w -s -extldflags "-static"' -o timelock-worker .
 
-ENTRYPOINT ["./timelock-worker"]
+# Final image: minimal scratch with only the binary
+FROM scratch
+COPY --from=builder /build/timelock-worker /timelock-worker
+ENTRYPOINT ["/timelock-worker"]
 CMD ["start"]
