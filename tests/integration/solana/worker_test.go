@@ -23,6 +23,43 @@ import (
 	evmtests "github.com/smartcontractkit/timelock-worker/tests/integration/evm"
 )
 
+func (s *solanaIntegrationTestSuite) TestTimelockWorkerContinuousScheduler() {
+	s.withTimeout(1 * time.Hour) // or time.Minute * 10 for shorter runs
+
+	e2eutils.FundAccounts(s.T(), s.Ctx, []solana.PublicKey{s.TestPrivateKey.PublicKey()}, 1, s.solanaClient)
+
+	// Set up instance and logger
+	instanceIDSeed := solanasdk.PDASeed([32]byte{'l', 'o', 'n', 'g', 'r', 'u', 'n', 't'})
+	s.initializeTimelockInstance(instanceIDSeed, 1*time.Second)
+
+	// Start worker (optional if you're running it externally)
+	s.T().Log("Solana Node URL:", s.solanaBlockchain.Nodes[0].HostHTTPUrl)
+	s.T().Log("Timelock Program:", solanasdk.ContractAddress(s.TimelockProgramID, instanceIDSeed))
+	s.T().Log("Test Private Key:", s.TestPrivateKey.String())
+
+	predecessor := [32]byte{}
+	var saltCounter uint8 = 1
+
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	s.Log("Starting continuous scheduler...")
+	for {
+		select {
+		case <-s.Ctx.Done():
+			s.T().Log("Test context done:", s.Ctx.Err())
+			return
+		case <-ticker.C:
+			s.T().Log("Scheduling new operation...")
+			salt := [32]byte{saltCounter}
+			saltCounter++
+
+			_, opID := s.scheduleTestIx(instanceIDSeed, predecessor, salt)
+			s.T().Logf("Scheduled new operation with salt: %d, opID: 0x%x", salt[0], opID)
+		}
+	}
+}
+
 // TestTimelockWorkerListen tests the Solana timelock worker's ability to listen for scheduled and canceled operations.
 func (s *solanaIntegrationTestSuite) TestTimelockWorkerListen() {
 	s.withTimeout(45 * time.Second)
