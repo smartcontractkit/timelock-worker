@@ -1,9 +1,6 @@
 # Builder image: Go 1.22 on Alpine
 FROM golang:1.24-alpine AS builder
 
-# Install git (needed for go mod) and libc for static linking
-RUN apk add --no-cache git build-base
-
 # Set working directory
 WORKDIR /build
 
