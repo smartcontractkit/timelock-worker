@@ -12,7 +12,7 @@ services:
       - 8080
       - 2120
     volumes:
-      - "../${ENV_FILE}:/app/timelock.env:ro"
+      - "./.env:/timelock.env:ro"
       - "../.tmp:/tmp"
     networks:
       - worker
