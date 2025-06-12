@@ -16,7 +16,9 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-w -s -extldflags "-static"' -o timelock-worker .
 
 # Final image: minimal scratch with only the binary
-FROM scratch
+FROM alpine:latest
+# Install CA certs
+RUN apk add --no-cache ca-certificates
 COPY --from=builder /build/timelock-worker /timelock-worker
 ENTRYPOINT ["/timelock-worker"]
 CMD ["start"]
