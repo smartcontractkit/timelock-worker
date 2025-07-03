@@ -82,6 +82,12 @@ func (tw *Worker) executeCallSchedule(ctx context.Context, c *contracts.RBACTime
 		txOpts.GasPrice = big.NewInt(1000000000) // gasPrice set to 1 gwei
 	}
 
+	if chainID.Cmp(new(big.Int).SetUint64(chainselectors.ETHEREUM_MAINNET_LINEA_1.EvmChainID)) == 0 {
+		tw.logger.Infof("Linea chain detected")
+		txOpts.GasFeeCap = big.NewInt(20000000000) // gasFeeCap set to 20 gwei
+		txOpts.GasTipCap = big.NewInt(20000000000) // gasTipCap set to 20 gwei
+	}
+
 	tw.logger.Infof("Calling execute Batch...")
 	// Execute the tx's with all the computed calls.
 	// Predecessor and salt are the same for all the tx's.
