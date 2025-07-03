@@ -31,4 +31,5 @@ testdata/
 .idea/
 .vscode/
 
-
+# envs
+envs/*
