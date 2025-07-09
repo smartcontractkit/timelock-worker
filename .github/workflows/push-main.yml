@@ -30,6 +30,8 @@ jobs:
   ci-test:
     name: Tests
     runs-on: ubuntu-latest
+    env:
+      CTF_CONFIGS: ./config.toml
     permissions:
       id-token: write
       contents: read
