@@ -44,7 +44,6 @@ func NewGethContainer(ctx context.Context) (*GethContainer, error) {
 			"--http", "--http.addr", "0.0.0.0", "--http.vhosts", "*",
 			"--ws", "--ws.addr", "0.0.0.0", "--ws.origins", "*",
 			"--cache.blocklogs", "1024",
-			"--networkid", fmt.Sprintf("%d", chainID),
 			"--datadir", dataDir,
 		},
 		// uncomment to print container logs to stdout
