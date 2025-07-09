@@ -31,7 +31,7 @@ jobs:
     name: Tests
     runs-on: ubuntu-latest
     env:
-      CTF_CONFIGS: ./config.toml
+      CTF_CONFIGS: /home/runner/work/timelock-worker/timelock-worker/tests/integration/solana/artifacts
     permissions:
       id-token: write
       contents: read
