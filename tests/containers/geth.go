@@ -46,7 +46,6 @@ func NewGethContainer(ctx context.Context) (*GethContainer, error) {
 			"--cache.blocklogs", "1024",
 			"--datadir", dataDir,
 		},
-		// uncomment to print container logs to stdout
 		LogConsumerCfg: &testcontainers.LogConsumerConfig{
 			Opts: []testcontainers.LogProductionOption{
 				testcontainers.WithLogProductionTimeout(10 * time.Second),
