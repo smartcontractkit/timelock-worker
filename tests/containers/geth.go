@@ -48,12 +48,12 @@ func NewGethContainer(ctx context.Context) (*GethContainer, error) {
 			"--datadir", dataDir,
 		},
 		// uncomment to print container logs to stdout
-		// LogConsumerCfg: &testcontainers.LogConsumerConfig{
-		// 	Opts: []testcontainers.LogProductionOption{
-		// 		testcontainers.WithLogProductionTimeout(10 * time.Second),
-		// 	},
-		// 	Consumers: []testcontainers.LogConsumer{&StdoutLogConsumer{Prefix: "|| "}},
-		// },
+		LogConsumerCfg: &testcontainers.LogConsumerConfig{
+			Opts: []testcontainers.LogProductionOption{
+				testcontainers.WithLogProductionTimeout(10 * time.Second),
+			},
+			Consumers: []testcontainers.LogConsumer{&StdoutLogConsumer{Prefix: "|| "}},
+		},
 	}
 	gethContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: request,
