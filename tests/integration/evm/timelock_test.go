@@ -44,7 +44,9 @@ func (s *integrationTestSuite) TestTimelockWorkerListen() {
 		"RoleGranted",      //    |
 		"RoleGranted",      //    |
 		"MinDelayChange",   // <--+
-		"MinDelayChange",   // <----- updateDelay call
+		"RoleGranted",      // <----- grantRole(admin, timelock)
+		"RoleGranted",      // <----- grantRole(executor, callproxy)
+		"MinDelayChange",   // <----- updateDelay() call
 	}
 
 	tests := []struct {
@@ -66,7 +68,7 @@ func (s *integrationTestSuite) TestTimelockWorkerListen() {
 			callProxyAddress, _, _, _ := DeployCallProxy(s.T(), ctx, transactor, backend, timelockAddress)
 
 			go runTimelockWorker(s.T(), sctx, tt.url, timelockAddress.String(), callProxyAddress.String(),
-				account.HexPrivateKey, big.NewInt(0), int64(60), int64(1), uint64(10), true, logger)
+				account.HexPrivateKey, big.NewInt(0), uint64(0), int64(60), int64(1), uint64(10), true, logger)
 
 			UpdateDelay(s.T(), ctx, transactor, backend, timelockContract, big.NewInt(10))
 
@@ -140,7 +142,7 @@ func (s *integrationTestSuite) TestTimelockWorkerDryRun() {
 			callProxyAddress, _, _, _ := DeployCallProxy(s.T(), tctx, transactor, backend, timelockAddress)
 
 			go runTimelockWorker(s.T(), tctx, gethURL, timelockAddress.String(), callProxyAddress.String(),
-				account.HexPrivateKey, big.NewInt(0), int64(1), int64(1), uint64(10), tt.dryRun, logger)
+				account.HexPrivateKey, big.NewInt(0), uint64(0), int64(1), int64(1), uint64(10), tt.dryRun, logger)
 
 			ScheduleBatch(s.T(), tctx, transactor, backend, timelockContract, calls, [32]byte{}, [32]byte{}, big.NewInt(1))
 
@@ -169,7 +171,7 @@ func (s *integrationTestSuite) TestTimelockWorkerCancelledEvent() {
 	callProxyAddress, _, _, _ := DeployCallProxy(s.T(), ctx, transactor, backend, timelockAddress)
 
 	go runTimelockWorker(s.T(), ctx, gethURL, timelockAddress.String(), callProxyAddress.String(),
-		account.HexPrivateKey, big.NewInt(0), int64(1), int64(1), uint64(10), false, logger)
+		account.HexPrivateKey, big.NewInt(0), uint64(0), int64(1), int64(1), uint64(10), false, logger)
 
 	calls := []contracts.RBACTimelockCall{{
 		Target: common.HexToAddress("0x000000000000000000000000000000000000000"),
@@ -215,7 +217,7 @@ func (s *integrationTestSuite) TestTimelockWorkerPollSize() {
 
 	// --- act ---
 	go runTimelockWorker(s.T(), ctx, gethURL, timelockAddress.String(), callProxyAddress.String(),
-		account.HexPrivateKey, big.NewInt(0), int64(1), int64(1), uint64(2), false, logger)
+		account.HexPrivateKey, big.NewInt(0), uint64(0), int64(1), int64(1), uint64(2), false, logger)
 
 	// --- assert ---
 	s.Require().EventuallyWithT(func(collect *assert.CollectT) {
@@ -225,17 +227,59 @@ func (s *integrationTestSuite) TestTimelockWorkerPollSize() {
 	}, 2*time.Second, 100*time.Millisecond, logMessages(logs))
 }
 
+func (s *integrationTestSuite) TestTimelockWorkerMaxGasLimit() {
+	// --- arrange ---
+	ctx, cancel := context.WithCancel(s.Ctx)
+	defer cancel()
+
+	account := NewTestAccount(s.T())
+	_, err := s.GethContainer.CreateAccount(ctx, account.HexAddress, account.HexPrivateKey, 1)
+	s.Require().NoError(err)
+
+	gethURL := s.GethContainer.HTTPConnStr(s.T(), ctx)
+	backend := NewRPCBackend(s.T(), ctx, gethURL)
+	transactor := s.KeyedTransactor(account.PrivateKey, nil)
+	logger, logs := timelockTests.NewTestLogger()
+
+	timelockAddress, _, _, timelockContract := DeployTimelock(s.T(), ctx, transactor, backend,
+		account.Address, big.NewInt(1))
+	callProxyAddress, _, _, _ := DeployCallProxy(s.T(), ctx, transactor, backend, timelockAddress)
+
+	time.Sleep(1 * time.Second) // wait for a few blocks before starting the timelock worker service
+
+	calls := []contracts.RBACTimelockCall{{
+		Target: timelockAddress,
+		Value:  big.NewInt(0),
+		Data:   common.FromHex("64d62353000000000000000000000000000000000000000000000000000000000000003c"), // UpdateMinDelay(60)
+	}}
+	predecessor := common.Hash{}
+	salt := common.Hash{}
+	maxGasLimit := uint64(20000)
+
+	// --- act ---
+	go runTimelockWorker(s.T(), ctx, gethURL, timelockAddress.String(), callProxyAddress.String(),
+		account.HexPrivateKey, big.NewInt(0), maxGasLimit, int64(1), int64(1), uint64(2), false, logger)
+
+	ScheduleBatch(s.T(), ctx, transactor, backend, timelockContract, calls, predecessor, salt, big.NewInt(1))
+
+	// --- assert ---
+	expectedMessage := "error: transaction gas exceeds max gas limit"
+	s.Require().EventuallyWithT(func(collect *assert.CollectT) {
+		assertLogMessageSnippet(collect, logs, expectedMessage)
+	}, 10*time.Second, 250*time.Millisecond, logMessages(logs))
+}
+
 // ----- helpers -----
 
 func runTimelockWorker(
 	t *testing.T, ctx context.Context, nodeURL, timelockAddress, callProxyAddress, privateKey string,
-	fromBlock *big.Int, pollPeriod int64, listenerPollPeriod int64, listenerPollSize uint64,
-	dryRun bool, logger *zap.Logger,
+	fromBlock *big.Int, maxGasLimit uint64, pollPeriod int64, listenerPollPeriod int64,
+	listenerPollSize uint64, dryRun bool, logger *zap.Logger,
 ) {
 	t.Logf("TimelockWorker.Listen(%v, %v, %v, %v, %v, %v, %v, %v)", nodeURL, timelockAddress,
 		callProxyAddress, privateKey, fromBlock, pollPeriod, listenerPollPeriod, listenerPollSize)
-	timelockWorker, err := timelock.NewTimelockWorkerEVM(nodeURL, timelockAddress,
-		callProxyAddress, privateKey, fromBlock, pollPeriod, listenerPollPeriod, listenerPollSize, dryRun, logger.Sugar())
+	timelockWorker, err := timelock.NewTimelockWorkerEVM(nodeURL, timelockAddress, callProxyAddress, privateKey,
+		fromBlock, maxGasLimit, pollPeriod, listenerPollPeriod, listenerPollSize, dryRun, logger.Sugar())
 	require.NoError(t, err)
 	require.NotNil(t, timelockWorker)
 
@@ -245,6 +289,10 @@ func runTimelockWorker(
 
 func assertLogMessage(t assert.TestingT, logs *observer.ObservedLogs, message string) {
 	assert.Equal(t, logs.FilterMessage(message).Len(), 1)
+}
+
+func assertLogMessageSnippet(t assert.TestingT, logs *observer.ObservedLogs, message string) {
+	assert.Equal(t, logs.FilterMessageSnippet(message).Len(), 1)
 }
 
 func logMessages(logs *observer.ObservedLogs) string {

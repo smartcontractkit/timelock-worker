@@ -3,6 +3,7 @@ package timelock
 import (
 	"context"
 	"crypto/ecdsa"
+	"errors"
 	"fmt"
 	"math/big"
 
@@ -14,6 +15,8 @@ import (
 
 	contracts "github.com/smartcontractkit/ccip-owner-contracts/gethwrappers"
 )
+
+var ErrMaxGasLimit = errors.New("transaction gas exceeds max gas limit")
 
 // execute runs the CallScheduled operation if:
 // - The predecessor operation is finished
@@ -41,6 +44,9 @@ func (tw *WorkerEVM) execute(ctx context.Context, op []TimelockCallScheduled) {
 	tx, err := tw.executeCallSchedule(ctx, &tw.executeContract.RBACTimelockTransactor, op, tw.privateKey)
 	if err != nil || tx == nil {
 		tw.logger.Errorf("execute operation %x error: %s", opId, err.Error())
+		if errors.Is(err, ErrMaxGasLimit) {
+			tw.scheduler.delFromScheduler(opId)
+		}
 	} else {
 		tw.logger.Infof("execute operation %x success: %s", opId, tx.Hash())
 
@@ -101,6 +107,16 @@ func (tw *WorkerEVM) executeCallSchedule(
 	predecessor := cs[0].(*evmTimelockCallScheduled).callScheduled.Predecessor
 	salt := cs[0].(*evmTimelockCallScheduled).callScheduled.Salt
 
+	if tw.maxGasLimit > 0 {
+		gasEstimate, err := estimateGas(ctx, c, *txOpts, calls, predecessor, salt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to estimate gas for execute batch: %w", err)
+		}
+		if gasEstimate >= tw.maxGasLimit {
+			return nil, ErrMaxGasLimit
+		}
+	}
+
 	return Retry(ctx, func(rctx context.Context) (*types.Transaction, error) {
 		txOpts.Context = rctx
 		return c.ExecuteBatch(txOpts, calls, predecessor, salt)
@@ -148,6 +164,23 @@ func (tw *WorkerEVM) signTx(chainID *big.Int) bind.SignerFn {
 
 		return signedTx, nil
 	}
+}
+
+func estimateGas(
+	ctx context.Context, contract *contracts.RBACTimelockTransactor, txOpts bind.TransactOpts,
+	calls []contracts.RBACTimelockCall, predecessor, salt [32]byte,
+) (uint64, error) {
+	tx, err := Retry(ctx, func(rctx context.Context) (*types.Transaction, error) {
+		txOpts.Context = rctx //nolint:fatcontext
+		txOpts.NoSend = true
+
+		return contract.ExecuteBatch(&txOpts, calls, predecessor, salt)
+	})
+	if err != nil {
+		return 0, fmt.Errorf("failed to estimate gas for execute batch: %w", err)
+	}
+
+	return tx.Gas(), nil
 }
 
 // privateKeyToAddress is an util function to calculate the addresses of a given private key.

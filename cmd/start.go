@@ -25,7 +25,7 @@ func startCommand() *cobra.Command {
 
 		nodeURL, privateKey, timelockAddress, callProxyAddress, chainFamily string
 		fromBlock, pollPeriod, eventListenerPollPeriod                      int64
-		eventListenerPollSize                                               uint64
+		eventListenerPollSize, maxGasLimit                                  uint64
 		dryRun                                                              bool
 	)
 
@@ -47,6 +47,7 @@ func startCommand() *cobra.Command {
 	startCmd.Flags().StringVarP(&callProxyAddress, "call-proxy-address", "f", timelockConf.CallProxyAddress, "Address of the target CallProxyAddress contract")
 	startCmd.Flags().StringVarP(&privateKey, "private-key", "k", timelockConf.PrivateKey, "Private key used to execute transactions")
 	startCmd.Flags().Int64Var(&fromBlock, "from-block", timelockConf.FromBlock, "Start watching from this block")
+	startCmd.Flags().Uint64Var(&maxGasLimit, "max-gas-limit", timelockConf.MaxGasLimit, "Network's maximum gas limit")
 	startCmd.Flags().Int64Var(&pollPeriod, "poll-period", timelockConf.PollPeriod, "Poll period in seconds")
 	startCmd.Flags().Int64Var(&eventListenerPollPeriod, "event-listener-poll-period", timelockConf.EventListenerPollPeriod, "Event Listener poll period in seconds")
 	startCmd.Flags().Uint64Var(&eventListenerPollSize, "event-listener-poll-size", timelockConf.EventListenerPollSize, "Number of entries to fetch when polling logs")
@@ -110,6 +111,11 @@ func startTimelock(cmd *cobra.Command) {
 		}
 	}
 
+	maxGasLimit, err := cmd.Flags().GetUint64("max-gas-limit")
+	if err != nil {
+		slog.Fatalf("value of max-gas-limit not set: %s", err.Error())
+	}
+
 	fromBlock, err := cmd.Flags().GetInt64("from-block")
 	if err != nil {
 		slog.Fatalf("value of from-block not set: %s", err.Error())
@@ -137,7 +143,7 @@ func startTimelock(cmd *cobra.Command) {
 
 	if chainFamily == chain_selectors.FamilyEVM {
 		tWorker, err := timelock.NewTimelockWorkerEVM(nodeURL, timelockAddress, callProxyAddress, privateKey,
-			big.NewInt(fromBlock), pollPeriod, eventListenerPollPeriod, eventListenerPollSize, dryRun, slog)
+			big.NewInt(fromBlock), maxGasLimit, pollPeriod, eventListenerPollPeriod, eventListenerPollSize, dryRun, slog)
 		if err != nil {
 			slog.Fatalf("error creating the timelock-worker: %s", err.Error())
 		}

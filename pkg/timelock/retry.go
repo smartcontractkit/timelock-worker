@@ -9,7 +9,6 @@ import (
 
 var (
 	retryMinDelay          = 500 * time.Millisecond
-	retryAttempts          = uint(5)
 	retryIncrementalDelays = [4]int{500, 2000, 8000, 32000}
 	retryContextTimeout    = 30 * time.Second
 	retryOpts              = func(ctx context.Context) []retry.Option {
