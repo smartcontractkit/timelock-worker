@@ -178,13 +178,13 @@ func Test_scheduler_concurrency(t *testing.T) {
 
 	// run scheduler
 	testScheduler := newScheduler(10*time.Millisecond, logger, execFn)
-	_ = testScheduler.runScheduler(ctx)
+	schedulerDone := testScheduler.runScheduler(ctx)
 
 	// run mock event listener
 	go runMockEventListener(t, ctx, cancel, testScheduler, executedCh, numOps)
 
 	// wait for all operations to be executed
-	<-ctx.Done()
+	<-schedulerDone
 
 	require.GreaterOrEqual(t, len(executedOps), numOps)
 	executedIDs := lo.Keys(executedOps)
