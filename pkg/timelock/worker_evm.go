@@ -34,6 +34,7 @@ type WorkerEVM struct {
 	abi                *abi.ABI
 	addresses          []common.Address
 	fromBlock          *big.Int
+	maxGasLimit        uint64
 	pollPeriod         int64
 	listenerPollPeriod int64
 	pollSize           uint64
@@ -51,7 +52,8 @@ var validNodeUrlSchemesEVM = []string{"http", "https", "ws", "wss"}
 // It's a singleton, so further executions will retrieve the same timelockWorker.
 func NewTimelockWorkerEVM(
 	nodeURL, timelockAddress, callProxyAddress, privateKey string, fromBlock *big.Int,
-	pollPeriod int64, listenerPollPeriod int64, pollSize uint64, dryRun bool, logger *zap.SugaredLogger,
+	maxGasLimit uint64, pollPeriod int64, listenerPollPeriod int64, pollSize uint64, dryRun bool,
+	logger *zap.SugaredLogger,
 ) (*WorkerEVM, error) {
 	// Sanity check on each provided variable before allocating more resources.
 	u, err := url.ParseRequestURI(nodeURL)
@@ -130,6 +132,7 @@ func NewTimelockWorkerEVM(
 		abi:                timelockABI,
 		addresses:          []common.Address{common.HexToAddress(timelockAddress)},
 		fromBlock:          fromBlock,
+		maxGasLimit:        maxGasLimit,
 		pollPeriod:         pollPeriod,
 		listenerPollPeriod: listenerPollPeriod,
 		pollSize:           pollSize,
@@ -400,7 +403,7 @@ func (tw *WorkerEVM) fetchAndDispatchLogs(
 	for _, log := range logs {
 		select {
 		case logCh <- log:
-			tw.logger.With("log", log).Debug("dispatching log")
+			tw.logger.With("log", log).Debug("dispatched log")
 		case <-ctx.Done():
 			tw.logger.Debug("stopped while dispatching logs: incomplete retrieval.")
 			return fromBlock
@@ -593,6 +596,7 @@ func (tw *WorkerEVM) startLog() {
 
 	tw.logger.Infof("\tEOA addresses: %v", wallet)
 	tw.logger.Infof("\tStarting from block: %v", tw.fromBlock)
+	tw.logger.Infof("\tNetwork's max gas limit: %v", tw.maxGasLimit)
 	tw.logger.Infof("\tPoll Period: %v", time.Duration(tw.pollPeriod*int64(time.Second)).String())
 	tw.logger.Infof("\tEvent Listener Poll Period: %v", time.Duration(tw.listenerPollPeriod*int64(time.Second)).String())
 	tw.logger.Infof("\tEvent Listener Poll # Logs: %v", tw.pollSize)

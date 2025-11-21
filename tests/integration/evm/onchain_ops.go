@@ -14,6 +14,9 @@ import (
 	test_contracts "github.com/smartcontractkit/timelock-worker/tests/contracts"
 )
 
+var ExecutorRole = common.HexToHash("0xd8aa0f3194971a2a116679f7c2090f6939c8d4e01a2a8d7e41d55e5351469e63")
+var AdminRole = common.HexToHash("0xa49807205ce4d355092ef5a8a18f56e8913cf4a201fbe287825b095693c21775")
+
 func DeployTimelock(
 	t *testing.T, ctx context.Context, transactor *bind.TransactOpts, backend Backend,
 	adminAccount common.Address, minDelay *big.Int,
@@ -37,6 +40,14 @@ func DeployTimelock(
 	require.Equal(t, types.ReceiptStatusSuccessful, receipt.Status)
 	t.Logf("timelock address: %v; deploy transaction: %v", address, transaction.Hash())
 
+	// grant Admin role to itself
+	transaction, err = contract.GrantRole(transactor, AdminRole, address)
+	require.NoError(t, err)
+	backend.Commit()
+	receipt, err = bind.WaitMined(ctx, backend, transaction)
+	require.NoError(t, err)
+	require.Equal(t, types.ReceiptStatusSuccessful, receipt.Status)
+
 	return address, transaction, receipt, contract
 }
 
@@ -55,6 +66,16 @@ func DeployCallProxy(
 	require.NoError(t, err)
 	require.Equal(t, types.ReceiptStatusSuccessful, receipt.Status)
 	t.Logf("call proxy address: %v; deploy transaction: %v", address, transaction.Hash())
+
+	// grant Executor role to call proxy
+	timelockContract, err := contracts.NewRBACTimelock(timelockAddress, backend)
+	require.NoError(t, err)
+	transaction, err = timelockContract.GrantRole(transactor, ExecutorRole, address)
+	require.NoError(t, err)
+	backend.Commit()
+	receipt, err = bind.WaitMined(ctx, backend, transaction)
+	require.NoError(t, err)
+	require.Equal(t, types.ReceiptStatusSuccessful, receipt.Status)
 
 	return address, transaction, receipt, contract
 }

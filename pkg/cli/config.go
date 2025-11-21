@@ -19,6 +19,7 @@ type Config struct {
 	CallProxyAddress        string `mapstructure:"CALL_PROXY_ADDRESS"`
 	PrivateKey              string `mapstructure:"PRIVATE_KEY"`
 	FromBlock               int64  `mapstructure:"FROM_BLOCK"`
+	MaxGasLimit             uint64 `mapstructure:"MAX_GAS_LIMIT"`
 	PollPeriod              int64  `mapstructure:"POLL_PERIOD"`
 	EventListenerPollPeriod int64  `mapstructure:"EVENT_LISTENER_POLL_PERIOD"`
 	EventListenerPollSize   uint64 `mapstructure:"EVENT_LISTENER_POLL_SIZE"`
@@ -73,6 +74,15 @@ func NewTimelockCLI() (*Config, error) {
 		}
 
 		c.FromBlock = int64(fb)
+	}
+
+	if os.Getenv("MAX_GAS_LIMIT") != "" {
+		mgl, err := strconv.ParseUint(os.Getenv("MAX_GAS_LIMIT"), 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse MAX_GAS_LIMIT value: %w", err)
+		}
+
+		c.MaxGasLimit = mgl
 	}
 
 	if os.Getenv("POLL_PERIOD") != "" {

@@ -58,8 +58,8 @@ type scheduler struct {
 func newScheduler(tick time.Duration, logger *zap.SugaredLogger, executeFn executeFn) *scheduler {
 	s := &scheduler{
 		ticker:    time.NewTicker(tick),
-		add:       make(chan TimelockCallScheduled),
-		del:       make(chan operationKey),
+		add:       make(chan TimelockCallScheduled, 16),
+		del:       make(chan operationKey, 16),
 		store:     make(map[operationKey][]TimelockCallScheduled),
 		busy:      false,
 		logger:    logger,

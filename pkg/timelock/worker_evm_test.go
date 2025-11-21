@@ -13,8 +13,8 @@ import (
 
 func newTestTimelockWorker(
 	t *testing.T, nodeURL, timelockAddress, callProxyAddress, privateKey string, fromBlock *big.Int,
-	pollPeriod int64, eventListenerPollPeriod int64, eventListenerPollSize uint64, dryRun bool,
-	logger *zap.SugaredLogger,
+	maxGasLimit uint64, pollPeriod int64, eventListenerPollPeriod int64, eventListenerPollSize uint64,
+	dryRun bool, logger *zap.SugaredLogger,
 ) *WorkerEVM {
 	assert.NotEmpty(t, nodeURL, "nodeURL is empty. Are environment variabes in const_test.go set?")
 	assert.NotEmpty(t, timelockAddress, "nodeURL is empty. Are environment variabes in const_test.go set?")
@@ -25,7 +25,7 @@ func newTestTimelockWorker(
 	assert.NotNil(t, logger, "logger is nil. Are environment variabes in const_test.go set?")
 
 	tw, err := NewTimelockWorkerEVM(nodeURL, timelockAddress, callProxyAddress, privateKey, fromBlock,
-		pollPeriod, eventListenerPollPeriod, eventListenerPollSize, dryRun, logger)
+		maxGasLimit, pollPeriod, eventListenerPollPeriod, eventListenerPollSize, dryRun, logger)
 	require.NoError(t, err)
 	require.NotNil(t, tw)
 
@@ -43,6 +43,7 @@ func TestNewTimelockWorkerEVM(t *testing.T) {
 		callProxyAddress        string
 		privateKey              string
 		fromBlock               *big.Int
+		maxGasLimit             uint64
 		pollPeriod              int64
 		eventListenerPollPeriod int64
 		eventListenerPollSize   uint64
@@ -125,7 +126,7 @@ func TestNewTimelockWorkerEVM(t *testing.T) {
 			tt.setup(&args)
 
 			got, err := NewTimelockWorkerEVM(args.nodeURL, args.timelockAddress, args.callProxyAddress,
-				args.privateKey, args.fromBlock, args.pollPeriod, args.eventListenerPollPeriod,
+				args.privateKey, args.fromBlock, args.maxGasLimit, args.pollPeriod, args.eventListenerPollPeriod,
 				args.eventListenerPollSize, args.dryRun, args.logger)
 
 			if tt.wantErr == "" {
@@ -144,7 +145,7 @@ func TestWorker_startLog(t *testing.T) {
 	rpcURL := runRPCServer(t)
 
 	testWorker := newTestTimelockWorker(t, rpcURL, testTimelockAddress, testCallProxyAddress, testPrivateKey,
-		testFromBlock, int64(testPollPeriod), int64(testEventListenerPollPeriod), testEventListenerPollSize,
+		testFromBlock, testMaxGasLimit, int64(testPollPeriod), int64(testEventListenerPollPeriod), testEventListenerPollSize,
 		testDryRun, testLogger)
 
 	tests := []struct {

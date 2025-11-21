@@ -33,7 +33,7 @@ clean:
 .PHONY: test
 test:
 	@echo "\n\t$(C_GREEN)# Run test and generate new coverage.out$(C_END)"
-	go test -short -coverprofile=coverage.out -covermode=atomic -race ./...
+	CTF_CONFIGS=./config.toml go test -short -coverprofile=coverage.out -covermode=atomic -race ./...
 
 .PHONY: coverage
 coverage:
