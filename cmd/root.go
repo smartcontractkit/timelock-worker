@@ -32,6 +32,7 @@ func Execute() {
 }
 
 func configureRootCmd() error {
+	logs, _ = logger.NewLogger("INFO", "json")
 	cobra.OnInitialize(initConfig)
 
 	rootCmd.AddCommand(
